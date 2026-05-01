@@ -230,7 +230,11 @@ class Scene:
             img = cv.resize(img.cpu().numpy(), (2048, 1024), cv.INTER_AREA)
             img = torch.from_numpy(img).cuda()
             
-            geo_predictor = PanoGeoPredictor()
+            geo_predictor = PanoGeoPredictor(
+                depth_predictor_name=args.depth_predictor,
+                g2vlm_root=args.g2vlm_root or None,
+                g2vlm_model_path=args.g2vlm_model_path or None,
+            )
             height, width, _ = img.shape
             distances, rot_w2c, fx, fy, cx, cy, pers_imgs = geo_predictor(img)
             pts = pcd_from_depths(img, distances, height, width, args.source_path)

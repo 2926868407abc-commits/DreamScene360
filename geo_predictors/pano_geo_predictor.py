@@ -7,6 +7,7 @@ import numpy as np
 
 from .geo_predictor import GeoPredictor
 from .omnidata_predictor import OmnidataPredictor
+from .g2vlm_predictor import G2VLMPredictor
 
 from fields.networks import VanillaMLP
 import tinycudann as tcnn
@@ -71,9 +72,18 @@ class GeometricField(nn.Module):
 
 
 class PanoGeoPredictor(GeoPredictor):
-    def __init__(self):
+    def __init__(self, depth_predictor_name="omnidata", g2vlm_root=None, g2vlm_model_path=None):
         super().__init__()
-        self.depth_predictor = OmnidataPredictor()
+        depth_predictor_name = depth_predictor_name.lower()
+        if depth_predictor_name == "omnidata":
+            self.depth_predictor = OmnidataPredictor()
+        elif depth_predictor_name == "g2vlm":
+            self.depth_predictor = G2VLMPredictor(
+                g2vlm_root=g2vlm_root,
+                model_path=g2vlm_model_path,
+            )
+        else:
+            raise ValueError(f"Unknown depth predictor: {depth_predictor_name}")
 
     def grads_to_normal(self, grads):
         grads = grads.cpu()
