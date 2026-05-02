@@ -197,6 +197,8 @@ class Scene:
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval) 
         ###############################################
         elif any(filename.endswith('.png') for filename in os.listdir(args.source_path)) or any(filename.endswith('.txt') for filename in os.listdir(args.source_path)):
+            generated_data_path = args.generated_data_path or os.path.join(args.model_path, "generated_data")
+            os.makedirs(generated_data_path, exist_ok=True)
             #img = None
             if (any(filename.endswith('.png') for filename in os.listdir(args.source_path))):
                 files = [f for f in os.listdir(args.source_path) if f.endswith('.png')]
@@ -237,10 +239,10 @@ class Scene:
             )
             height, width, _ = img.shape
             distances, rot_w2c, fx, fy, cx, cy, pers_imgs = geo_predictor(img)
-            pts = pcd_from_depths(img, distances, height, width, args.source_path)
+            pts = pcd_from_depths(img, distances, height, width, generated_data_path)
             print('Saving data for future use...')
-            save_data(args.source_path, img, distances, rot_w2c, fx, fy, cx, cy, pers_imgs, pts)
-            scene_info = get_info_from_params(args.source_path, img, distances, rot_w2c, fx, fy, cx, cy, pers_imgs, pts)
+            save_data(generated_data_path, img, distances, rot_w2c, fx, fy, cx, cy, pers_imgs, pts)
+            scene_info = get_info_from_params(generated_data_path, img, distances, rot_w2c, fx, fy, cx, cy, pers_imgs, pts)
 
         else:
             assert False, "Could not recognize scene type!"

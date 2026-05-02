@@ -57,6 +57,7 @@ class ModelParams(ParamGroup):
         self.depth_predictor = "omnidata"
         self.g2vlm_root = ""
         self.g2vlm_model_path = ""
+        self.generated_data_path = ""
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
