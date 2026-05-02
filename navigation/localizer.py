@@ -34,8 +34,7 @@ class VisualLocalizer:
     @property
     def model(self):
         if not hasattr(self, "_model"):
-            from torchvision.models import dinov2_vits14
-            self._model = dinov2_vits14(pretrained=True).to(self.device).eval()
+            self._model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14', pretrained=True, verbose=False).to(self.device).eval()
             for p in self._model.parameters():
                 p.requires_grad_(False)
         return self._model
