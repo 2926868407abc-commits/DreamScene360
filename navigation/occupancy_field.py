@@ -130,8 +130,8 @@ class OccupancyField(nn.Module):
 
             xyz_batch = torch.cat([occ_batch, free_batch], dim=0)
             target = torch.cat([
-                torch.ones(bs, 1, device=device),
-                torch.zeros(bs, 1, device=device),
+                torch.ones(bs, device=device),
+                torch.zeros(bs, device=device),
             ], dim=0)
 
             prob = self.forward(xyz_batch)
