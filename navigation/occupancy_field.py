@@ -68,7 +68,7 @@ class OccupancyField(nn.Module):
         flat = xyz.reshape(-1, 3)
         xyz_norm = self._normalize(flat)           # [0, 1]
         xyz_hash = xyz_norm * 0.98 + 0.01          # [0.01, 0.99] for hash grid
-        h = self.hash_grid(xyz_hash)
+        h = self.hash_grid(xyz_hash).float()
         logits = self.mlp(h)
         prob = torch.sigmoid(logits).view(*orig_shape)
         return prob
