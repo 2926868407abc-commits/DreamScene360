@@ -76,7 +76,6 @@ class OccupancyField(nn.Module):
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    @torch.no_grad()
     def fit(self, gaussians, num_steps=2000, batch_size=32768,
             scene_margin=0.1, occ_threshold=0.05):
         """Train occupancy field from the 3DGS Gaussian point cloud.
