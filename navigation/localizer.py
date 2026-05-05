@@ -132,14 +132,15 @@ class VisualLocalizer:
 
         # camera forward direction in world space
         direction = self._camera_forward(best_cam)
+        center = self._camera_center(best_cam)
 
-        # position = look-at direction * distance, snapped to a reasonable height
-        position = direction * forward_dist
+        # position near the matched camera, offset along its viewing direction.
+        position = center + direction * forward_dist
         position[1] = 0.0   # will be overridden by ground height in planner
 
         return {
-            "position": position,
-            "direction": direction,
+            "position": position.cpu().numpy(),
+            "direction": direction.cpu().numpy(),
             "camera_idx": best_idx,
             "similarity": best_sim,
             "top_k": [(s[0], s[1]) for s in scores[:top_k]],
@@ -156,3 +157,20 @@ class VisualLocalizer:
         R = torch.tensor(cam.R, dtype=torch.float)
         forward = R[:, 2]  # third column of world-to-camera = forward in world
         return forward / (forward.norm() + 1e-10)
+
+    @staticmethod
+    def _camera_center(cam):
+        """Return camera center in DreamScene360 world coordinates."""
+        if hasattr(cam, "camera_center"):
+            center = cam.camera_center
+            if torch.is_tensor(center):
+                return center.detach().cpu().float()
+            return torch.tensor(center, dtype=torch.float)
+
+        R = np.asarray(cam.R)
+        T = np.asarray(cam.T)
+        w2c = np.eye(4, dtype=np.float32)
+        w2c[:3, :3] = R.T
+        w2c[:3, 3] = T
+        c2w = np.linalg.inv(w2c)
+        return torch.tensor(c2w[:3, 3], dtype=torch.float)

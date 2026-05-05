@@ -32,7 +32,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from arguments import ModelParams, PipelineParams
 from scene import Scene, GaussianModel
 from gaussian_renderer import render
-from navigation import OccupancyField, DiffPlanner, PathVisualizer
+from navigation import (
+    GaussianCollisionField,
+    HybridCollisionField,
+    MultiInitDiffPlanner,
+    PathVisualizer,
+)
 from navigation.localizer import VisualLocalizer
 
 
@@ -104,6 +109,32 @@ def resolve_position(start_src, goal_src, args, ground_h, scene):
     return result["start"], result["goal"]
 
 
+def build_collision_field(args, gaussians):
+    """Create the planner-facing field without tying planner to geometry source."""
+    source = args.geometry_source
+    if source in ("gaussian", "hybrid"):
+        ckpt_to_load = args.occ_checkpoint if args.occ_checkpoint and os.path.exists(args.occ_checkpoint) else None
+        field = GaussianCollisionField.from_gaussians(
+            gaussians,
+            num_steps=args.occ_fit_steps,
+            checkpoint=ckpt_to_load,
+            skip_fit=args.skip_occ_fit,
+            device="cuda",
+        )
+        if args.occ_checkpoint and ckpt_to_load is None:
+            torch.save(field.state_dict(), args.occ_checkpoint)
+
+        if source == "hybrid":
+            print("  hybrid geometry selected: DreamScene360 Gaussian field is active.")
+            if args.use_g2vlm_depth:
+                print("  NOTE: G2VLM monocular depth fusion is reserved in the "
+                      "CollisionField API but not enabled yet.")
+            return HybridCollisionField(field)
+        return field
+
+    raise ValueError(f"Unsupported geometry_source: {source}")
+
+
 def main():
     parser = ArgumentParser(description="Navigation in DreamScene360 scene")
     model_params = ModelParams(parser)
@@ -137,6 +168,18 @@ def main():
     parser.add_argument("--fov", type=float, default=60)
     parser.add_argument("--skip_occ_fit", action="store_true")
     parser.add_argument("--occ_checkpoint", type=str, default=None)
+    parser.add_argument("--occ_fit_steps", type=int, default=2000)
+    parser.add_argument("--geometry_source", type=str, default="gaussian",
+                        choices=["gaussian", "hybrid"],
+                        help="Main collision geometry source.")
+    parser.add_argument("--use_g2vlm_depth", action="store_true",
+                        help="Reserve G2VLM monocular depth fusion in hybrid mode.")
+    parser.add_argument("--g2vlm_model_path", type=str, default=None)
+    parser.add_argument("--depth_views", type=str, default=None)
+    parser.add_argument("--samples_per_segment", type=int, default=4,
+                        help="Intermediate collision samples per path segment.")
+    parser.add_argument("--random_inits", type=int, default=2,
+                        help="Extra smooth detour initialisations.")
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -161,25 +204,14 @@ def main():
     # ------------------------------------------------------------------
     print("=" * 60)
     print("[2] Building occupancy field ...")
-    occ_field = OccupancyField().cuda()
-
-    occ_ckpt = args.occ_checkpoint
-    if occ_ckpt and os.path.exists(occ_ckpt):
-        occ_field.load_state_dict(torch.load(occ_ckpt))
-        print(f"  loaded from {occ_ckpt}")
-    elif not args.skip_occ_fit:
-        occ_field.fit(gaussians, num_steps=2000)
-        if occ_ckpt:
-            torch.save(occ_field.state_dict(), occ_ckpt)
-    else:
-        occ_field.fit(gaussians, num_steps=200)
+    collision_field = build_collision_field(args, gaussians)
 
     # ------------------------------------------------------------------
     # 3. Ground + planner
     # ------------------------------------------------------------------
     print("=" * 60)
     print("[3] Detecting ground plane ...")
-    planner = DiffPlanner(occ_field, device="cuda")
+    planner = MultiInitDiffPlanner(collision_field, device="cuda")
     ground_h = planner.estimate_ground(gaussians)
 
     # ------------------------------------------------------------------
@@ -225,8 +257,8 @@ def main():
 
     # validate occupancy
     with torch.no_grad():
-        start_occ = occ_field.forward(start_pos[None]).item()
-        goal_occ = occ_field.forward(goal_pos[None]).item()
+        start_occ = collision_field.occupancy(start_pos[None]).item()
+        goal_occ = collision_field.occupancy(goal_pos[None]).item()
     print(f"  occupancy: start={start_occ:.3f}  goal={goal_occ:.3f}")
     if start_occ > 0.5:
         print("  WARNING: start is inside geometry!")
@@ -244,6 +276,8 @@ def main():
         lr=0.05, num_steps=args.opt_steps,
         w_collision=5.0, w_smooth=1.0, w_goal=2.0,
         w_length=0.5, w_floor=2.0, w_boundary=1.0,
+        samples_per_segment=args.samples_per_segment,
+        random_inits=args.random_inits,
     )
 
     # ------------------------------------------------------------------
