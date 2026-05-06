@@ -174,7 +174,6 @@ def main():
                         help="Main collision geometry source.")
     parser.add_argument("--use_g2vlm_depth", action="store_true",
                         help="Reserve G2VLM monocular depth fusion in hybrid mode.")
-    parser.add_argument("--g2vlm_model_path", type=str, default=None)
     parser.add_argument("--depth_views", type=str, default=None)
     parser.add_argument("--samples_per_segment", type=int, default=4,
                         help="Intermediate collision samples per path segment.")
