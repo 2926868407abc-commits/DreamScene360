@@ -25,6 +25,7 @@ import sys
 import torch
 import numpy as np
 import torchvision
+import re
 from argparse import ArgumentParser
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -122,6 +123,9 @@ def build_collision_field(args, gaussians):
             device="cuda",
         )
         if args.occ_checkpoint and ckpt_to_load is None:
+            occ_dir = os.path.dirname(args.occ_checkpoint)
+            if occ_dir:
+                os.makedirs(occ_dir, exist_ok=True)
             torch.save(field.state_dict(), args.occ_checkpoint)
 
         if source == "hybrid":
@@ -133,6 +137,40 @@ def build_collision_field(args, gaussians):
         return field
 
     raise ValueError(f"Unsupported geometry_source: {source}")
+
+
+def _safe_label(text):
+    text = str(text)
+    text = os.path.splitext(os.path.basename(text))[0] if os.path.sep in text else text
+    text = text.replace(" ", "_")
+    text = re.sub(r"[^0-9A-Za-z_.-]+", "_", text)
+    return text.strip("_") or "unknown"
+
+
+def source_label(label, vp_arg, xyz_arg, img_arg):
+    if vp_arg is not None:
+        return f"{label}_vp{vp_arg}"
+    if xyz_arg is not None:
+        return f"{label}_xyz_{_safe_label(xyz_arg)}"
+    if img_arg is not None:
+        return f"{label}_img_{_safe_label(img_arg)}"
+    return f"{label}_unknown"
+
+
+def resolve_output_dir(args):
+    """Avoid overwriting runs by defaulting to a start-goal named folder."""
+    start = source_label("start", args.start_vp, args.start_xyz, args.start_img)
+    goal = source_label("goal", args.goal_vp, args.goal_xyz, args.goal_img)
+    run_name = f"{start}__{goal}"
+
+    if args.output_dir in (None, "", "nav_output"):
+        return os.path.join("nav_output", run_name)
+
+    # If output_dir points at the common nav_output folder, append the run name.
+    if os.path.basename(os.path.normpath(args.output_dir)) == "nav_output":
+        return os.path.join(args.output_dir, run_name)
+
+    return args.output_dir
 
 
 def main():
@@ -180,6 +218,8 @@ def main():
     parser.add_argument("--random_inits", type=int, default=2,
                         help="Extra smooth detour initialisations.")
     args = parser.parse_args()
+    args.output_dir = resolve_output_dir(args)
+    print(f"[nav] output_dir = {args.output_dir}")
 
     # ------------------------------------------------------------------
     # 1. Load trained 3DGS model
