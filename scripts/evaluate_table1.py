@@ -218,11 +218,14 @@ class QAlignScorer:
 
         try:
             from q_align.evaluate.scorer import QAlignScorer as _QAlignScorer
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(
-                "Q-Align metric requested but q_align could not be imported. "
-                "Install Q-Align or pass --qalign-vendored-root to VideoScore2's utils_q_align."
-            ) from exc
+        except Exception:
+            try:
+                from q_align import QAlignScorer as _QAlignScorer
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    "Q-Align metric requested but q_align could not be imported. "
+                    "Install Q-Align or pass --qalign-vendored-root to VideoScore2's utils_q_align."
+                ) from exc
 
         self.model = _QAlignScorer(pretrained=model_path, device=str(device)).eval()
         self.scale = scale
