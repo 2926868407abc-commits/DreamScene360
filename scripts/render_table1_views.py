@@ -1,10 +1,10 @@
 """
-Render the six fixed views used for Table 1 style quantitative evaluation.
+Render views for Table 1 style quantitative evaluation.
 
-The paper evaluates rendered exploration views rather than the panorama itself:
-front / left / right / back plus pitch up / pitch down. This script renders
-those views from a trained DreamScene360 Gaussian model and saves RGB images
-that can be fed to scripts/evaluate_table1.py.
+The fixed mode renders front / left / back / right plus pitch up / pitch down.
+The paper mode follows the paper description more closely: clockwise yaw views
+with slight random pitch and translation, plus pitch up / pitch down views.
+The exact random seed and sampled camera parameters are saved for reproducibility.
 """
 
 from __future__ import annotations
@@ -32,6 +32,71 @@ VIEW_DIRECTIONS = {
     "up": np.array([1e-4, 0.0, 1.0], dtype=np.float32),
     "down": np.array([1e-4, 0.0, -1.0], dtype=np.float32),
 }
+
+
+def direction_from_yaw_pitch(yaw_degrees: float, pitch_degrees: float) -> np.ndarray:
+    yaw = math.radians(yaw_degrees)
+    pitch = math.radians(pitch_degrees)
+    return np.array(
+        [
+            math.cos(pitch) * math.cos(yaw),
+            -math.cos(pitch) * math.sin(yaw),
+            math.sin(pitch),
+        ],
+        dtype=np.float32,
+    )
+
+
+def random_translation(rng: np.random.Generator, radius: float) -> np.ndarray:
+    if radius <= 0:
+        return np.zeros(3, dtype=np.float32)
+    return rng.uniform(-radius, radius, size=3).astype(np.float32)
+
+
+def build_fixed_views(translation_radius: float) -> list[dict[str, object]]:
+    views = []
+    for name, direction in VIEW_DIRECTIONS.items():
+        direction = normalize(direction)
+        views.append(
+            {
+                "name": name,
+                "direction": direction,
+                "position": direction * float(translation_radius),
+                "yaw": "",
+                "pitch": "",
+            }
+        )
+    return views
+
+
+def build_paper_views(seed: int, pitch_degrees: float, translation_radius: float) -> list[dict[str, object]]:
+    rng = np.random.default_rng(seed)
+    views = []
+
+    for yaw in [0.0, 90.0, 180.0, 270.0]:
+        pitch = float(rng.uniform(-pitch_degrees, pitch_degrees))
+        views.append(
+            {
+                "name": f"yaw_{int(yaw):03d}",
+                "direction": normalize(direction_from_yaw_pitch(yaw, pitch)),
+                "position": random_translation(rng, translation_radius),
+                "yaw": yaw,
+                "pitch": pitch,
+            }
+        )
+
+    for name, pitch in [("pitch_up", 90.0), ("pitch_down", -90.0)]:
+        views.append(
+            {
+                "name": name,
+                "direction": normalize(direction_from_yaw_pitch(0.0, pitch)),
+                "position": random_translation(rng, translation_radius),
+                "yaw": 0.0,
+                "pitch": pitch,
+            }
+        )
+
+    return views
 
 
 def normalize(vec: np.ndarray) -> np.ndarray:
@@ -77,8 +142,30 @@ def maybe_use_generated_data(dataset) -> None:
         dataset.images = "images"
 
 
+def write_view_metadata(path: Path, views: list[dict[str, object]]) -> None:
+    lines = ["index,name,yaw_degrees,pitch_degrees,tx,ty,tz,dx,dy,dz"]
+    for idx, view in enumerate(views):
+        position = np.asarray(view["position"], dtype=np.float32)
+        direction = np.asarray(view["direction"], dtype=np.float32)
+        lines.append(
+            "{idx},{name},{yaw},{pitch},{tx:.8f},{ty:.8f},{tz:.8f},{dx:.8f},{dy:.8f},{dz:.8f}".format(
+                idx=idx,
+                name=view["name"],
+                yaw=view["yaw"],
+                pitch=view["pitch"],
+                tx=position[0],
+                ty=position[1],
+                tz=position[2],
+                dx=direction[0],
+                dy=direction[1],
+                dz=direction[2],
+            )
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> int:
-    parser = ArgumentParser(description="Render Table 1 fixed evaluation views")
+    parser = ArgumentParser(description="Render Table 1 evaluation views")
     model_params = ModelParams(parser, sentinel=True)
     pipeline_params = PipelineParams(parser)
     parser.add_argument("--iteration", default=-1, type=int)
@@ -86,8 +173,12 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--fov", type=float, default=90.0, help="Horizontal and vertical FOV in degrees")
+    parser.add_argument("--view-mode", choices=["fixed", "paper"], default="fixed")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed for paper view sampling")
+    parser.add_argument("--paper-pitch-degrees", type=float, default=10.0,
+                        help="Maximum absolute random pitch for yaw views in paper mode")
     parser.add_argument("--translation-radius", type=float, default=0.0,
-                        help="Move each view slightly along its viewing direction")
+                        help="Fixed mode: move along viewing direction. Paper mode: random translation range")
     parser.add_argument("--save-depth", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     args = get_combined_args(parser)
@@ -124,10 +215,17 @@ def main() -> int:
         if args.save_depth:
             depth_dir.mkdir(parents=True, exist_ok=True)
 
+        if args.view_mode == "paper":
+            views = build_paper_views(args.seed, args.paper_pitch_degrees, args.translation_radius)
+        else:
+            views = build_fixed_views(args.translation_radius)
+        write_view_metadata(output_dir / "view_metadata.csv", views)
+
         fov = math.radians(args.fov)
-        for idx, (name, direction) in enumerate(VIEW_DIRECTIONS.items()):
-            direction = normalize(direction)
-            position = direction * float(args.translation_radius)
+        for idx, view in enumerate(views):
+            name = str(view["name"])
+            direction = np.asarray(view["direction"], dtype=np.float32)
+            position = np.asarray(view["position"], dtype=np.float32)
             target = position + direction
             rotation, translation = look_at_rotation(position, target)
 
