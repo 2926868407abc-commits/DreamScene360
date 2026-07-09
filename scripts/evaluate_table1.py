@@ -335,6 +335,8 @@ def main() -> int:
     parser.add_argument("--qalign-scale", type=float, default=5.0,
                         help="Q-Align scorer returns 0-1 in the vendored implementation; Table 1 uses 0-5")
     parser.add_argument("--fail-on-missing-metric", action="store_true")
+    parser.add_argument("--skip-metric-errors", action="store_true",
+                        help="Skip per-image metric failures and record them in metric_errors.json")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -379,14 +381,40 @@ def main() -> int:
             "runtime_sec": item.runtime_sec if item.runtime_sec is not None else "",
         }
 
+        def score_or_record(metric_name: str, row_key: str, scorer_call: Callable[[], float]) -> None:
+            try:
+                row[row_key] = scorer_call()
+            except Exception as exc:  # noqa: BLE001
+                if not args.skip_metric_errors:
+                    raise
+                error_key = f"{metric_name}:{item.image_path}"
+                metric_errors[error_key] = str(exc)
+                row[row_key] = ""
+
         if "clip" in scorers and item.prompt:
-            row["clip_distance"] = scorers["clip"].score(image, item.prompt)  # type: ignore[attr-defined]
+            score_or_record(
+                "clip",
+                "clip_distance",
+                lambda: scorers["clip"].score(image, item.prompt),  # type: ignore[attr-defined]
+            )
         if "qalign" in scorers:
-            row["q_align"] = scorers["qalign"].score(image)  # type: ignore[attr-defined]
+            score_or_record(
+                "qalign",
+                "q_align",
+                lambda: scorers["qalign"].score(image),  # type: ignore[attr-defined]
+            )
         if "niqe" in scorers:
-            row["niqe"] = scorers["niqe"].score(image)  # type: ignore[attr-defined]
+            score_or_record(
+                "niqe",
+                "niqe",
+                lambda: scorers["niqe"].score(image),  # type: ignore[attr-defined]
+            )
         if "brisque" in scorers:
-            row["brisque"] = scorers["brisque"].score(image)  # type: ignore[attr-defined]
+            score_or_record(
+                "brisque",
+                "brisque",
+                lambda: scorers["brisque"].score(image),  # type: ignore[attr-defined]
+            )
 
         per_image_rows.append(row)
 
