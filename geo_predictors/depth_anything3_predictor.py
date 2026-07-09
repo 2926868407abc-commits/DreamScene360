@@ -1,5 +1,10 @@
 import os
+import shlex
+import subprocess
+import tempfile
+from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torchvision.transforms.functional import to_pil_image
@@ -8,9 +13,10 @@ from .geo_predictor import GeoPredictor
 
 
 class DepthAnything3Predictor(GeoPredictor):
-    def __init__(self, model_id=None):
+    def __init__(self, model_id=None, command=None):
         super().__init__()
         self.model_id = model_id or os.getenv("DEPTH_ANYTHING3_MODEL") or "depth-anything/DA3-LARGE-1.1"
+        self.command = command or os.getenv("DEPTH_ANYTHING3_COMMAND")
         if not self.model_id:
             raise RuntimeError(
                 "Depth Anything 3 model id is not set. "
@@ -21,6 +27,10 @@ class DepthAnything3Predictor(GeoPredictor):
                 "Replace YOUR_DEPTH_ANYTHING3_MODEL_ID with a real Depth Anything 3 model id, "
                 "for example depth-anything/DA3-LARGE-1.1."
             )
+
+        if self.command:
+            self.model = None
+            return
 
         try:
             from depth_anything_3.api import DepthAnything3
@@ -40,6 +50,8 @@ class DepthAnything3Predictor(GeoPredictor):
     def predict_depth_batch(self, imgs, intrinsics=None):
         if imgs.dim() != 4:
             raise ValueError("DepthAnything3Predictor expects a [N, 3, H, W] tensor.")
+        if self.command:
+            return self._predict_depth_batch_external(imgs)
 
         target_hw = imgs.shape[-2:]
         pil_imgs = [
@@ -60,6 +72,39 @@ class DepthAnything3Predictor(GeoPredictor):
         if depth.shape[-2:] != target_hw:
             depth = F.interpolate(depth, target_hw, mode="bilinear", align_corners=False)
         return depth
+
+    def _predict_depth_batch_external(self, imgs):
+        target_hw = imgs.shape[-2:]
+        with tempfile.TemporaryDirectory(prefix="depth_anything3_") as tmp:
+            tmp_dir = Path(tmp)
+            input_dir = tmp_dir / "inputs"
+            output_dir = tmp_dir / "outputs"
+            input_dir.mkdir()
+            output_dir.mkdir()
+
+            for index, image in enumerate(imgs):
+                path = input_dir / f"{index:06d}.png"
+                to_pil_image(image.detach().clamp(0.0, 1.0).cpu()).save(path)
+
+            rendered = self.command.format(
+                input_dir=str(input_dir),
+                output_dir=str(output_dir),
+                model_id=self.model_id,
+            )
+            subprocess.run(shlex.split(rendered), check=True)
+
+            depths = []
+            for index in range(imgs.shape[0]):
+                depth_path = output_dir / f"{index:06d}.npy"
+                if not depth_path.exists():
+                    raise RuntimeError(f"Depth Anything 3 command did not write {depth_path}.")
+                depth = np.load(depth_path).squeeze().astype(np.float32)
+                depths.append(torch.from_numpy(depth)[None, None])
+
+        depth = torch.cat(depths, dim=0).float().clip(0.0, None)
+        if depth.shape[-2:] != target_hw:
+            depth = F.interpolate(depth, target_hw, mode="bilinear", align_corners=False)
+        return depth.cuda()
 
 
 class HuggingFaceDepthPredictor(GeoPredictor):

@@ -81,6 +81,7 @@ class PanoGeoPredictor(GeoPredictor):
             g2vlm_root=None,
             g2vlm_model_path=None,
             depth_anything3_model=None,
+            depth_anything3_command=None,
             dap_root=None,
             dap_model_path=None,
             dap_command=None,
@@ -97,7 +98,10 @@ class PanoGeoPredictor(GeoPredictor):
                 model_path=g2vlm_model_path,
             )
         elif depth_predictor_name in ["depth_anything3", "depth-anything3", "da3"]:
-            self.depth_predictor = DepthAnything3Predictor(model_id=depth_anything3_model)
+            self.depth_predictor = DepthAnything3Predictor(
+                model_id=depth_anything3_model,
+                command=depth_anything3_command,
+            )
         elif depth_predictor_name == "dap":
             self.depth_predictor = DAPPredictor(
                 root=dap_root,

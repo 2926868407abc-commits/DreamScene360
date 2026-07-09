@@ -237,6 +237,7 @@ class Scene:
                 g2vlm_root=args.g2vlm_root or None,
                 g2vlm_model_path=args.g2vlm_model_path or None,
                 depth_anything3_model=args.depth_anything3_model or None,
+                depth_anything3_command=args.depth_anything3_command or None,
                 dap_root=args.dap_root or None,
                 dap_model_path=args.dap_model_path or None,
                 dap_command=args.dap_command or None,

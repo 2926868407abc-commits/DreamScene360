@@ -10,10 +10,17 @@ DreamScene360 now accepts these `--depth_predictor` values:
 
 ## Depth Anything 3
 
-Install the official Depth Anything 3 package first:
+The original DreamScene360 environment uses Python 3.8, while the official
+Depth Anything 3 package requires Python >= 3.9. Keep the DreamScene360
+environment unchanged and install Depth Anything 3 in a separate environment:
 
 ```bash
-conda activate /mnt/data/wangqq/conda_envs/dreamscene360
+conda create -p /mnt/data/wangqq/conda_envs/depth_anything3 python=3.10 -y
+conda activate /mnt/data/wangqq/conda_envs/depth_anything3
+
+python -m pip install --upgrade pip
+python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
 cd /mnt/data/wangqq
 
 git clone https://github.com/ByteDance-Seed/depth-anything-3.git
@@ -21,8 +28,9 @@ cd depth-anything-3
 python -m pip install -e .
 ```
 
-Then run DreamScene360 with a real Depth Anything 3 model id. Do not pass the
-placeholder `YOUR_DEPTH_ANYTHING3_MODEL_ID`.
+Then run DreamScene360 in its original environment and call the Depth Anything 3
+environment through `--depth_anything3_command`. Do not pass the placeholder
+`YOUR_DEPTH_ANYTHING3_MODEL_ID`.
 
 ```bash
 conda activate /mnt/data/wangqq/conda_envs/dreamscene360
@@ -37,6 +45,7 @@ python train.py \
   -m output/YOUR_SCENE_da3 \
   --depth_predictor depth_anything3 \
   --depth_anything3_model depth-anything/DA3-LARGE-1.1 \
+  --depth_anything3_command "/mnt/data/wangqq/conda_envs/depth_anything3/bin/python /mnt/data/wangqq/DreamScene360/scripts/run_depth_anything3_external.py --input-dir {input_dir} --output-dir {output_dir} --model {model_id}" \
   --iterations 10000
 ```
 

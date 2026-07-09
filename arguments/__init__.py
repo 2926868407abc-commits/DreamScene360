@@ -58,6 +58,7 @@ class ModelParams(ParamGroup):
         self.g2vlm_root = ""
         self.g2vlm_model_path = ""
         self.depth_anything3_model = ""
+        self.depth_anything3_command = ""
         self.dap_root = ""
         self.dap_model_path = ""
         self.dap_command = ""
