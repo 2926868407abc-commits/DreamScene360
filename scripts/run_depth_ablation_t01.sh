@@ -34,6 +34,7 @@ DREAM_ENV="${DREAM_ENV:-/mnt/data/wangqq/conda_envs/dreamscene360}"
 IQA_ENV="${IQA_ENV:-/mnt/data/wangqq/conda_envs/iqa_eval}"
 QALIGN_ENV="${QALIGN_ENV:-/mnt/data/wangqq/conda_envs/q_align_eval}"
 DA3_ENV="${DA3_ENV:-/mnt/data/wangqq/conda_envs/depth_anything3}"
+DAP_ENV="${DAP_ENV:-/mnt/data/wangqq/conda_envs/dap}"
 
 HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 HF_HOME="${HF_HOME:-/mnt/data/wangqq/hf_cache}"
@@ -44,9 +45,13 @@ if [[ -z "${DEPTH_ANYTHING3_COMMAND:-}" ]]; then
   DEPTH_ANYTHING3_COMMAND="${DA3_ENV}/bin/python ${PROJECT_DIR}/scripts/run_depth_anything3_external.py --input-dir {input_dir} --output-dir {output_dir} --model {model_id}"
 fi
 
-DAP_ROOT="${DAP_ROOT:-}"
+DAP_ROOT="${DAP_ROOT:-/mnt/data/wangqq/DAP}"
 DAP_MODEL_PATH="${DAP_MODEL_PATH:-}"
+DAP_WEIGHTS_DIR="${DAP_WEIGHTS_DIR:-/mnt/data/wangqq/DAP-weights}"
 DAP_DEPTH_COMMAND="${DAP_DEPTH_COMMAND:-}"
+if [[ -z "$DAP_DEPTH_COMMAND" && -x "${DAP_ENV}/bin/python" && -f "${DAP_ROOT}/test/infer.py" ]]; then
+  DAP_DEPTH_COMMAND="${DAP_ENV}/bin/python ${PROJECT_DIR}/scripts/run_dap_external.py --input {input} --output {output} --root ${DAP_ROOT} --weights-dir ${DAP_WEIGHTS_DIR}"
+fi
 
 VGGT_ROOT="${VGGT_ROOT:-/mnt/data/wangqq/vggt}"
 VGGT_MODEL_PATH="${VGGT_MODEL_PATH:-facebook/VGGT-1B}"
@@ -174,6 +179,13 @@ preflight_configs() {
       dap)
         if [[ -z "$DAP_DEPTH_COMMAND" ]]; then
           skip_reason="DAP_DEPTH_COMMAND is empty"
+        elif [[ "$DAP_DEPTH_COMMAND" == *"/path/to/"* ]]; then
+          skip_reason="DAP_DEPTH_COMMAND still contains placeholder /path/to/"
+        else
+          dap_script="$(echo "$DAP_DEPTH_COMMAND" | awk '{print $2}')"
+          if [[ "$dap_script" == *.py && ! -f "$dap_script" ]]; then
+            skip_reason="DAP script not found: $dap_script"
+          fi
         fi
         ;;
       vggt_omega)

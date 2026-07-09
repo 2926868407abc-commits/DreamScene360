@@ -10,14 +10,20 @@ DreamScene360 now accepts these `--depth_predictor` values:
 
 ## One-command ablation runner
 
-The recommended full pipeline is:
+First prepare the external environments:
 
 ```bash
 conda activate /mnt/data/wangqq/conda_envs/dreamscene360
 cd /mnt/data/wangqq/DreamScene360
 
-# Required only when METHODS includes dap.
-export DAP_DEPTH_COMMAND='python /path/to/dap/infer.py --image {input} --output {output}'
+bash scripts/setup_depth_ablation_envs.sh
+```
+
+Then run the full pipeline:
+
+```bash
+conda activate /mnt/data/wangqq/conda_envs/dreamscene360
+cd /mnt/data/wangqq/DreamScene360
 
 bash scripts/run_depth_ablation_t01.sh
 ```
