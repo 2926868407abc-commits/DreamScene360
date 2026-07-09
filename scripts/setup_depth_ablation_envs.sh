@@ -84,15 +84,9 @@ fi
 if [[ "$INSTALL_VGGT" == "1" ]]; then
   echo "[setup] VGGT"
   clone_or_update "https://github.com/facebookresearch/vggt.git" "$VGGT_ROOT"
-  conda activate "$DREAM_ENV"
-  python -m pip install --upgrade pip
-  cd "$VGGT_ROOT"
-  if [[ -f requirements.txt ]]; then
-    python -m pip install -r requirements.txt
-  fi
-  if [[ -f pyproject.toml || -f setup.py || -f setup.cfg ]]; then
-    python -m pip install -e .
-  fi
+  echo "[setup] VGGT is used from source via VGGT_ROOT=${VGGT_ROOT}."
+  echo "[setup] Not installing VGGT requirements into DreamScene360 because they"
+  echo "[setup] can downgrade torch/numpy and break the Python 3.8 environment."
 fi
 
 if [[ "$INSTALL_DAP" == "1" ]]; then

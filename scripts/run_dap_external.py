@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def main() -> int:
         txt_path.write_text(str(Path(args.input).resolve()) + "\n", encoding="utf-8")
         subprocess.run(
             [
-                "python",
+                sys.executable,
                 str(infer_script),
                 "--config",
                 str(local_config),
