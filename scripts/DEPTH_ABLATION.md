@@ -4,23 +4,39 @@ DreamScene360 now accepts these `--depth_predictor` values:
 
 - `omnidata`: original DreamScene360 default.
 - `g2vlm`: existing G2VLM adapter.
-- `depth_anything3`: Hugging Face depth-estimation adapter.
+- `depth_anything3`: official Depth Anything 3 adapter.
 - `dap`: external command adapter.
 - `vggt_omega`: local VGGT adapter.
 
 ## Depth Anything 3
 
-Set the exact Hugging Face model id used by your Depth Anything 3 checkout:
+Install the official Depth Anything 3 package first:
 
 ```bash
+conda activate /mnt/data/wangqq/conda_envs/dreamscene360
+cd /mnt/data/wangqq
+
+git clone https://github.com/ByteDance-Seed/depth-anything-3.git
+cd depth-anything-3
+python -m pip install -e .
+```
+
+Then run DreamScene360 with a real Depth Anything 3 model id. Do not pass the
+placeholder `YOUR_DEPTH_ANYTHING3_MODEL_ID`.
+
+```bash
+conda activate /mnt/data/wangqq/conda_envs/dreamscene360
+cd /mnt/data/wangqq/DreamScene360
+
 export HF_ENDPOINT=https://hf-mirror.com
 export HF_HOME=/mnt/data/wangqq/hf_cache
+export TORCH_HOME=/mnt/data/wangqq/torch_cache
 
 python train.py \
   -s data/YOUR_SCENE \
   -m output/YOUR_SCENE_da3 \
   --depth_predictor depth_anything3 \
-  --depth_anything3_model YOUR_DEPTH_ANYTHING3_MODEL_ID \
+  --depth_anything3_model depth-anything/DA3-LARGE-1.1 \
   --iterations 10000
 ```
 
