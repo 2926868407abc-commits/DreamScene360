@@ -43,7 +43,8 @@ def read_summary(path: Path | None) -> dict[str, dict[str, str]]:
 def first_value(method: str, key: str, sources: list[dict[str, dict[str, str]]]) -> str:
     for source in sources:
         value = source.get(method, {}).get(key, "")
-        if str(value).strip():
+        text = str(value).strip()
+        if text and text.lower() not in {"nan", "na", "none", "null"}:
             return value
     return ""
 
