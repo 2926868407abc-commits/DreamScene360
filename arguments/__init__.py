@@ -57,6 +57,13 @@ class ModelParams(ParamGroup):
         self.depth_predictor = "omnidata"
         self.g2vlm_root = ""
         self.g2vlm_model_path = ""
+        self.depth_anything3_model = ""
+        self.dap_root = ""
+        self.dap_model_path = ""
+        self.dap_command = ""
+        self.vggt_root = ""
+        self.vggt_model_path = ""
+        self.vggt_chunk_size = 8
         self.generated_data_path = ""
         super().__init__(parser, "Loading Parameters", sentinel)
 

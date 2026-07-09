@@ -8,6 +8,9 @@ import numpy as np
 from .geo_predictor import GeoPredictor
 from .omnidata_predictor import OmnidataPredictor
 from .g2vlm_predictor import G2VLMPredictor
+from .depth_anything3_predictor import DepthAnything3Predictor
+from .external_depth_predictor import DAPPredictor
+from .vggt_predictor import VGGTPredictor
 
 from fields.networks import VanillaMLP
 import tinycudann as tcnn
@@ -72,7 +75,18 @@ class GeometricField(nn.Module):
 
 
 class PanoGeoPredictor(GeoPredictor):
-    def __init__(self, depth_predictor_name="omnidata", g2vlm_root=None, g2vlm_model_path=None):
+    def __init__(
+            self,
+            depth_predictor_name="omnidata",
+            g2vlm_root=None,
+            g2vlm_model_path=None,
+            depth_anything3_model=None,
+            dap_root=None,
+            dap_model_path=None,
+            dap_command=None,
+            vggt_root=None,
+            vggt_model_path=None,
+            vggt_chunk_size=8):
         super().__init__()
         depth_predictor_name = depth_predictor_name.lower()
         if depth_predictor_name == "omnidata":
@@ -81,6 +95,20 @@ class PanoGeoPredictor(GeoPredictor):
             self.depth_predictor = G2VLMPredictor(
                 g2vlm_root=g2vlm_root,
                 model_path=g2vlm_model_path,
+            )
+        elif depth_predictor_name in ["depth_anything3", "depth-anything3", "da3"]:
+            self.depth_predictor = DepthAnything3Predictor(model_id=depth_anything3_model)
+        elif depth_predictor_name == "dap":
+            self.depth_predictor = DAPPredictor(
+                root=dap_root,
+                model_path=dap_model_path,
+                command=dap_command,
+            )
+        elif depth_predictor_name in ["vggt", "vggt_omega", "vggt-omega"]:
+            self.depth_predictor = VGGTPredictor(
+                vggt_root=vggt_root,
+                model_path=vggt_model_path,
+                chunk_size=vggt_chunk_size,
             )
         else:
             raise ValueError(f"Unknown depth predictor: {depth_predictor_name}")
@@ -166,23 +194,38 @@ class PanoGeoPredictor(GeoPredictor):
         pers_dirs_pc = pers_dirs[:20]
         n_pers_pc = len(pers_dirs_pc)
 
-        pred_distances_raw = []
+        intrinsics = [
+            {
+                'fx': fx[i].item(),
+                'fy': fy[i].item(),
+                'cx': cx[i].item(),
+                'cy': cy[i].item()
+            }
+            for i in range(n_pers_pc)
+        ]
 
-        for i in range(n_pers_pc):
-            with torch.no_grad():
-                intri = {
-                    'fx': fx[i].item(),
-                    'fy': fy[i].item(),
-                    'cx': cx[i].item(),
-                    'cy': cy[i].item()
-                }
+        with torch.no_grad():
+            if hasattr(self.depth_predictor, "predict_depth_batch"):
+                pred_depths = self.depth_predictor.predict_depth_batch(
+                    pers_imgs_pc,
+                    intrinsics=intrinsics,
+                ).cuda().clip(0., None)
+                if pred_depths.dim() == 3:
+                    pred_depths = pred_depths[:, None]
+                if pred_depths.shape[-2:] != pers_imgs_pc.shape[-2:]:
+                    pred_depths = F.interpolate(pred_depths, pers_imgs_pc.shape[-2:], mode="bilinear", align_corners=False)
+            else:
+                pred_depths = []
+                for i in range(n_pers_pc):
+                    pred_depth = self.depth_predictor.predict_depth(
+                        pers_imgs_pc[i: i+1],
+                        intri=intrinsics[i],
+                    ).cuda().clip(0., None)
+                    pred_depths.append(pred_depth)
+                pred_depths = torch.cat(pred_depths, dim=0)
 
-                pred_depth = self.depth_predictor.predict_depth(pers_imgs_pc[i: i+1], intri=intri).cuda().clip(0., None)  # [1, 1, res, res]
-                pred_depth = pred_depth / (pred_depth.mean() + 1e-5)
-                pred_depth_ratio = pred_depth * pers_ratios[i].permute(2, 0, 1)[None]
-                pred_distances_raw.append(pred_depth_ratio)
-
-        pred_distances_raw = torch.cat(pred_distances_raw, dim=0)  # [n_pers, 1, res, res]
+        pred_depths = pred_depths / (pred_depths.mean(dim=(1, 2, 3), keepdim=True) + 1e-5)
+        pred_distances_raw = pred_depths * pers_ratios[:n_pers_pc].permute(0, 3, 1, 2)
         pers_dirs_pc = pers_dirs_pc.permute(0, 3, 1, 2)
 
         sup_infos = torch.cat([pers_dirs_pc, pred_distances_raw], dim=1)

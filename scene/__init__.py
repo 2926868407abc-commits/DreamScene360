@@ -236,6 +236,13 @@ class Scene:
                 depth_predictor_name=args.depth_predictor,
                 g2vlm_root=args.g2vlm_root or None,
                 g2vlm_model_path=args.g2vlm_model_path or None,
+                depth_anything3_model=args.depth_anything3_model or None,
+                dap_root=args.dap_root or None,
+                dap_model_path=args.dap_model_path or None,
+                dap_command=args.dap_command or None,
+                vggt_root=args.vggt_root or None,
+                vggt_model_path=args.vggt_model_path or None,
+                vggt_chunk_size=args.vggt_chunk_size,
             )
             height, width, _ = img.shape
             distances, rot_w2c, fx, fy, cx, cy, pers_imgs = geo_predictor(img)
