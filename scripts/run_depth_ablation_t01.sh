@@ -28,6 +28,7 @@ RUN_TRAIN="${RUN_TRAIN:-1}"
 RUN_RENDER="${RUN_RENDER:-1}"
 RUN_METRICS="${RUN_METRICS:-1}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
+AUTO_SKIP_UNAVAILABLE="${AUTO_SKIP_UNAVAILABLE:-1}"
 
 DREAM_ENV="${DREAM_ENV:-/mnt/data/wangqq/conda_envs/dreamscene360}"
 IQA_ENV="${IQA_ENV:-/mnt/data/wangqq/conda_envs/iqa_eval}"
@@ -160,32 +161,47 @@ smoke_args_for_methods() {
 }
 
 preflight_configs() {
+  local active_methods=()
   for raw_method in ${METHODS}; do
     method="$(canonical_method "$raw_method")"
+    skip_reason=""
     case "$method" in
       depth_anything3)
         if [[ ! -x "${DA3_ENV}/bin/python" ]]; then
-          echo "[error] Depth Anything 3 env python not found: ${DA3_ENV}/bin/python" >&2
-          echo "Create DA3 env first, or set DA3_ENV=/path/to/env." >&2
-          exit 1
+          skip_reason="Depth Anything 3 env python not found: ${DA3_ENV}/bin/python"
         fi
         ;;
       dap)
         if [[ -z "$DAP_DEPTH_COMMAND" ]]; then
-          echo "[error] METHODS includes dap, but DAP_DEPTH_COMMAND is empty." >&2
-          echo "Example: export DAP_DEPTH_COMMAND='python /path/to/dap/infer.py --image {input} --output {output}'" >&2
-          exit 1
+          skip_reason="DAP_DEPTH_COMMAND is empty"
         fi
         ;;
       vggt_omega)
         if [[ ! -d "$VGGT_ROOT" ]]; then
-          echo "[error] VGGT_ROOT not found: $VGGT_ROOT" >&2
-          echo "Clone VGGT there or set VGGT_ROOT=/path/to/vggt." >&2
-          exit 1
+          skip_reason="VGGT_ROOT not found: $VGGT_ROOT"
         fi
         ;;
     esac
+
+    if [[ -n "$skip_reason" ]]; then
+      if [[ "$AUTO_SKIP_UNAVAILABLE" == "1" ]]; then
+        echo "[skip] ${method}: ${skip_reason}"
+        continue
+      fi
+      echo "[error] ${method}: ${skip_reason}" >&2
+      echo "Set AUTO_SKIP_UNAVAILABLE=1 to skip unavailable methods." >&2
+      exit 1
+    fi
+    active_methods+=("$method")
   done
+
+  if [[ "${#active_methods[@]}" == "0" ]]; then
+    echo "[error] no runnable methods left after preflight checks." >&2
+    exit 1
+  fi
+
+  METHODS="${active_methods[*]}"
+  echo "[config] runnable methods: $METHODS"
 }
 
 export HF_ENDPOINT HF_HOME TORCH_HOME

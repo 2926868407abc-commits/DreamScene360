@@ -33,6 +33,11 @@ uses this shared view setting for every method:
 --translation-radius 0.1
 ```
 
+By default `AUTO_SKIP_UNAVAILABLE=1`, so unavailable methods are skipped with a
+message instead of stopping the whole run. For example, if DAP has no
+`DAP_DEPTH_COMMAND` or VGGT has no local repo, the runner will still evaluate
+the ready methods such as `omnidata` and `depth_anything3`.
+
 Useful switches:
 
 ```bash
@@ -41,6 +46,9 @@ RUN_TRAIN=0 RUN_RENDER=0 RUN_METRICS=0 bash scripts/run_depth_ablation_t01.sh
 
 # Run a subset.
 METHODS="omnidata depth_anything3" bash scripts/run_depth_ablation_t01.sh
+
+# Require every requested method to be available.
+AUTO_SKIP_UNAVAILABLE=0 bash scripts/run_depth_ablation_t01.sh
 
 # Quick debugging run.
 ITERATIONS=100 RUN_METRICS=0 bash scripts/run_depth_ablation_t01.sh
