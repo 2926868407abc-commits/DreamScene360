@@ -8,6 +8,44 @@ DreamScene360 now accepts these `--depth_predictor` values:
 - `dap`: external command adapter.
 - `vggt_omega`: local VGGT adapter.
 
+## One-command ablation runner
+
+The recommended full pipeline is:
+
+```bash
+conda activate /mnt/data/wangqq/conda_envs/dreamscene360
+cd /mnt/data/wangqq/DreamScene360
+
+# Required only when METHODS includes dap.
+export DAP_DEPTH_COMMAND='python /path/to/dap/infer.py --image {input} --output {output}'
+
+bash scripts/run_depth_ablation_t01.sh
+```
+
+The runner first smoke-tests all requested depth predictors, then trains,
+renders paper-style views, evaluates metrics, and merges the final table. It
+uses this shared view setting for every method:
+
+```bash
+--view-mode paper \
+--seed 0 \
+--paper-pitch-degrees 10 \
+--translation-radius 0.1
+```
+
+Useful switches:
+
+```bash
+# Only test whether predictors can run.
+RUN_TRAIN=0 RUN_RENDER=0 RUN_METRICS=0 bash scripts/run_depth_ablation_t01.sh
+
+# Run a subset.
+METHODS="omnidata depth_anything3" bash scripts/run_depth_ablation_t01.sh
+
+# Quick debugging run.
+ITERATIONS=100 RUN_METRICS=0 bash scripts/run_depth_ablation_t01.sh
+```
+
 ## Depth Anything 3
 
 The original DreamScene360 environment uses Python 3.8, while the official
