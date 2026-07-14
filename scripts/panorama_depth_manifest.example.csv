@@ -1,4 +1,4 @@
 dataset,scene,rgb_path,depth_path,mask_path,depth_scale
 Stanford2D3D,area_1_room_001,/path/to/stanford2d3d/rgb/area_1_room_001.png,/path/to/stanford2d3d/depth/area_1_room_001.png,,1000
-Matterport3D,house_001_pose_000,/path/to/matterport3d/rgb/house_001_pose_000.png,/path/to/matterport3d/depth/house_001_pose_000.npy,,
+Matterport3D,house_001_pose_000,/path/to/bath_matterport3d/rgb/house_001_pose_000.png,/path/to/bath_matterport3d/depth/house_001_pose_000.dpt,,
 Deep360,scene_001,/path/to/deep360/rgb/scene_001.png,/path/to/deep360/depth/scene_001.png,,1000

@@ -19,6 +19,7 @@ import json
 import math
 import os
 import sys
+from struct import unpack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -143,6 +144,23 @@ def load_rgb(path: Path) -> torch.Tensor:
     return torch.from_numpy(array).permute(2, 0, 1)
 
 
+def read_dpt(path: Path) -> np.ndarray:
+    """Read Middlebury-style .dpt depth files used by the Bath Matterport3D release."""
+    tag_float = 202021.25
+    with path.open("rb") as f:
+        tag = unpack("f", f.read(4))[0]
+        width = unpack("i", f.read(4))[0]
+        height = unpack("i", f.read(4))[0]
+        if tag != tag_float:
+            raise ValueError(f"{path} has an invalid .dpt tag: {tag}")
+        if width <= 0 or width >= 100000 or height <= 0 or height >= 100000:
+            raise ValueError(f"{path} has an invalid .dpt shape: {width}x{height}")
+        depth = np.fromfile(f, np.float32)
+    if depth.size != width * height:
+        raise ValueError(f"{path} contains {depth.size} values, expected {width * height}")
+    return depth.reshape(height, width)
+
+
 def load_depth(path: Path, depth_scale: float = 1.0) -> torch.Tensor:
     suffix = path.suffix.lower()
     if suffix == ".npy":
@@ -151,6 +169,8 @@ def load_depth(path: Path, depth_scale: float = 1.0) -> torch.Tensor:
         data = np.load(path)
         key = "depth" if "depth" in data.files else data.files[0]
         depth = data[key]
+    elif suffix == ".dpt":
+        depth = read_dpt(path)
     else:
         depth = np.asarray(Image.open(path))
     depth = np.asarray(depth).squeeze().astype(np.float32)
