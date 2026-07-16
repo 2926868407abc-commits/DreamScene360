@@ -48,6 +48,21 @@ def prop(obj, *names, default=""):
     return default
 
 
+def file_name(file_obj) -> str:
+    value = prop(
+        file_obj,
+        "name",
+        "fileName",
+        "file_name",
+        "filename",
+        "path",
+        "label",
+        "qualifiedReference",
+        default="",
+    )
+    return str(value)
+
+
 def find_dataset(redivis):
     org = redivis.organization("sdss")
     guesses = (
@@ -87,6 +102,11 @@ def main() -> int:
         action="store_true",
         help="Only list matching files; do not download.",
     )
+    parser.add_argument(
+        "--dump-files",
+        action="store_true",
+        help="Print all visible Redivis table/file names for debugging.",
+    )
     args = parser.parse_args()
 
     import redivis
@@ -105,9 +125,14 @@ def main() -> int:
         except Exception as exc:
             print(f"[warn] cannot list files for table {table_name}: {exc}")
             continue
+        if args.dump_files:
+            print(f"[table] {table_name}")
         for file_obj in files:
-            name = prop(file_obj, "name")
-            if name in TARGET_FILES:
+            name = file_name(file_obj)
+            if args.dump_files:
+                print(f"  [file] {name}")
+            basename = Path(name).name
+            if name in TARGET_FILES or basename in TARGET_FILES:
                 found[name] = file_obj
                 print(f"[match] {name} from table {table_name}")
 
