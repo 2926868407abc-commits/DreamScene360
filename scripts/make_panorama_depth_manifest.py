@@ -58,7 +58,7 @@ DATASETS = {
     "deep360": DatasetSpec(
         label="Deep360",
         default_dirs=("Deep360",),
-        depth_scale="1000",
+        depth_scale="",
     ),
 }
 

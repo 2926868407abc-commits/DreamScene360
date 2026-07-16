@@ -558,8 +558,14 @@ def main() -> int:
     parser.add_argument("--per-view-normalize", choices=["none", "mean", "median"], default="none")
     parser.add_argument("--eval-align", choices=["none", "median", "least_squares"], default="none",
                         help="Optional global scale alignment before metrics. Use none for metric-depth evaluation.")
+    parser.add_argument(
+        "--prediction-scale",
+        type=float,
+        default=1.0,
+        help="Scale applied to fused predictions before optional eval alignment.",
+    )
     parser.add_argument("--min-depth", type=float, default=1e-3)
-    parser.add_argument("--max-depth", type=float, default=80.0)
+    parser.add_argument("--max-depth", type=float, default=100.0)
     parser.add_argument("--save-predictions", action="store_true")
     parser.add_argument("--include-table3-direct-baselines", action="store_true")
     parser.add_argument("--depth-anything3-model", default="depth-anything/DA3-LARGE-1.1")
@@ -605,6 +611,7 @@ def main() -> int:
             center_weight_power=args.center_weight_power,
             per_view_normalize=args.per_view_normalize,
         )
+        pred = pred * args.prediction_scale
         pred = resize_like(pred, tuple(gt.shape))
         pred = align_prediction(pred, gt, mask, args.eval_align)
         metrics = compute_metrics(pred, gt, mask, args.min_depth, args.max_depth)
