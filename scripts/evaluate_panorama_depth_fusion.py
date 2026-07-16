@@ -296,12 +296,18 @@ def view_angles(yaw_count: int, pitch_degrees: Iterable[float]) -> list[tuple[fl
     ]
 
 
-def run_predictor_batch(predictor, images: torch.Tensor, batch_size: int) -> torch.Tensor:
+def run_predictor_batch(
+    predictor,
+    images: torch.Tensor,
+    batch_size: int,
+    fov_degrees: float,
+) -> torch.Tensor:
     depths = []
     _, _, height, width = images.shape
+    focal = float(width) * 0.5 / math.tan(math.radians(fov_degrees) * 0.5)
     intri = {
-        "fx": float(width),
-        "fy": float(height),
+        "fx": focal,
+        "fy": focal,
         "cx": float(width) / 2.0,
         "cy": float(height) / 2.0,
     }
@@ -392,7 +398,12 @@ def fuse_perspective_depths(
             align_corners=True,
         )
 
-        pred_depth = run_predictor_batch(predictor, views, batch_size=batch_size).to(device)
+        pred_depth = run_predictor_batch(
+            predictor,
+            views,
+            batch_size=batch_size,
+            fov_degrees=fov_degrees,
+        ).to(device)
         pred_depth = pred_depth.clamp_min(1e-6)
         if per_view_normalize == "mean":
             pred_depth = pred_depth / (pred_depth.mean(dim=(1, 2), keepdim=True) + 1e-6)
