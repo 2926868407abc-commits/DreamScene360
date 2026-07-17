@@ -359,6 +359,53 @@ def bilinear_splat(
         weight_sum.reshape(-1).scatter_add_(0, flat, w.reshape(-1))
 
 
+def sample_pano_map(pano: torch.Tensor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    height, width = pano.shape
+    grid_x = x / max(width - 1, 1) * 2.0 - 1.0
+    grid_y = y / max(height - 1, 1) * 2.0 - 1.0
+    grid = torch.stack([grid_x, grid_y], dim=-1)[None]
+    return F.grid_sample(
+        pano[None, None].float(),
+        grid,
+        mode="bilinear",
+        padding_mode="border",
+        align_corners=True,
+    )[0, 0]
+
+
+def align_view_to_fused_depth(
+    radial_depth: torch.Tensor,
+    center_weight: torch.Tensor,
+    x: torch.Tensor,
+    y: torch.Tensor,
+    value_sum: torch.Tensor,
+    weight_sum: torch.Tensor,
+    min_pixels: int,
+    scale_min: float,
+    scale_max: float,
+) -> torch.Tensor:
+    if not bool((weight_sum > 1e-8).any()):
+        return radial_depth
+
+    fused_depth = value_sum / weight_sum.clamp_min(1e-8)
+    ref_depth = sample_pano_map(fused_depth, x, y)
+    ref_weight = sample_pano_map(weight_sum, x, y)
+    valid = (
+        (ref_weight > 1e-6)
+        & torch.isfinite(ref_depth)
+        & torch.isfinite(radial_depth)
+        & (ref_depth > 0)
+        & (radial_depth > 0)
+        & (center_weight > 0.05)
+    )
+    if int(valid.sum().item()) < min_pixels:
+        return radial_depth
+
+    ratios = ref_depth[valid] / radial_depth[valid].clamp_min(1e-6)
+    scale = ratios.median().clamp(scale_min, scale_max)
+    return radial_depth * scale
+
+
 def fuse_perspective_depths(
     pano_rgb: torch.Tensor,
     predictor,
@@ -369,6 +416,10 @@ def fuse_perspective_depths(
     batch_size: int,
     center_weight_power: float,
     per_view_normalize: str,
+    overlap_align: str,
+    overlap_min_pixels: int,
+    overlap_scale_min: float,
+    overlap_scale_max: float,
 ) -> torch.Tensor:
     device = pano_rgb.device
     _, pano_h, pano_w = pano_rgb.shape
@@ -419,7 +470,22 @@ def fuse_perspective_depths(
         x, y = dirs_to_pano_xy(dirs_t, pano_h, pano_w)
 
         for i in range(len(batch_angles)):
-            bilinear_splat(value_sum, weight_sum, x[i], y[i], radial_depth[i], center_weight[i])
+            values = radial_depth[i]
+            if overlap_align == "progressive":
+                values = align_view_to_fused_depth(
+                    radial_depth=values,
+                    center_weight=center_weight[i],
+                    x=x[i],
+                    y=y[i],
+                    value_sum=value_sum,
+                    weight_sum=weight_sum,
+                    min_pixels=overlap_min_pixels,
+                    scale_min=overlap_scale_min,
+                    scale_max=overlap_scale_max,
+                )
+            elif overlap_align != "none":
+                raise ValueError(f"Unknown overlap alignment mode: {overlap_align}")
+            bilinear_splat(value_sum, weight_sum, x[i], y[i], values, center_weight[i])
 
     fused = value_sum / weight_sum.clamp_min(1e-8)
     valid = weight_sum > 1e-8
@@ -556,6 +622,15 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--center-weight-power", type=float, default=2.0)
     parser.add_argument("--per-view-normalize", choices=["none", "mean", "median"], default="none")
+    parser.add_argument(
+        "--overlap-align",
+        choices=["none", "progressive"],
+        default="none",
+        help="Align each perspective depth to previously fused overlapping views without using GT.",
+    )
+    parser.add_argument("--overlap-min-pixels", type=int, default=2048)
+    parser.add_argument("--overlap-scale-min", type=float, default=0.25)
+    parser.add_argument("--overlap-scale-max", type=float, default=4.0)
     parser.add_argument("--eval-align", choices=["none", "median", "least_squares"], default="none",
                         help="Optional global scale alignment before metrics. Use none for metric-depth evaluation.")
     parser.add_argument(
@@ -610,6 +685,10 @@ def main() -> int:
             batch_size=args.batch_size,
             center_weight_power=args.center_weight_power,
             per_view_normalize=args.per_view_normalize,
+            overlap_align=args.overlap_align,
+            overlap_min_pixels=args.overlap_min_pixels,
+            overlap_scale_min=args.overlap_scale_min,
+            overlap_scale_max=args.overlap_scale_max,
         )
         pred = pred * args.prediction_scale
         pred = resize_like(pred, tuple(gt.shape))
