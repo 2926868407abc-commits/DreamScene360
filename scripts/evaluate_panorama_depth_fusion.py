@@ -77,6 +77,9 @@ def canonical_method(name: str) -> str:
         "da3": "depth_anything3",
         "depthanything3": "depth_anything3",
         "depth_anything_3": "depth_anything3",
+        "geometryvlm": "g2vlm",
+        "geometry_vlm": "g2vlm",
+        "g2_vlm": "g2vlm",
         "vggt": "vggt_omega",
         "vggtomega": "vggt_omega",
     }
@@ -103,6 +106,13 @@ def build_predictor(method: str, args: argparse.Namespace):
             root=args.dap_root or None,
             model_path=args.dap_model_path or None,
             command=args.dap_command or None,
+        )
+    if method == "g2vlm":
+        from geo_predictors.g2vlm_predictor import G2VLMPredictor
+
+        return G2VLMPredictor(
+            g2vlm_root=args.g2vlm_root or None,
+            model_path=args.g2vlm_model_path or None,
         )
     if method == "vggt_omega":
         from geo_predictors.vggt_predictor import VGGTPredictor
@@ -637,7 +647,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate perspective-view monocular depth fused into panorama depth.")
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("panorama_depth_fusion_eval"))
-    parser.add_argument("--method", default="dap", help="Monocular depth predictor: omnidata, depth_anything3, dap, vggt_omega")
+    parser.add_argument("--method", default="dap", help="Monocular depth predictor: omnidata, depth_anything3, dap, g2vlm, vggt_omega")
     parser.add_argument("--method-label", default="", help="Name used in output tables")
     parser.add_argument("--yaw-count", type=int, default=12)
     parser.add_argument("--pitch-degrees", default="-45,0,45")
@@ -672,6 +682,8 @@ def main() -> int:
     parser.add_argument("--dap-root", default=os.getenv("DAP_ROOT", ""))
     parser.add_argument("--dap-model-path", default=os.getenv("DAP_MODEL_PATH", ""))
     parser.add_argument("--dap-command", default=os.getenv("DAP_DEPTH_COMMAND", ""))
+    parser.add_argument("--g2vlm-root", default=os.getenv("G2VLM_ROOT", ""))
+    parser.add_argument("--g2vlm-model-path", default=os.getenv("G2VLM_MODEL_PATH", ""))
     parser.add_argument("--vggt-root", default=os.getenv("VGGT_ROOT", ""))
     parser.add_argument("--vggt-model-path", default=os.getenv("VGGT_MODEL_PATH", "facebook/VGGT-1B"))
     parser.add_argument("--vggt-chunk-size", type=int, default=8)
