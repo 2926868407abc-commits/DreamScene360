@@ -138,7 +138,14 @@ class PanoGeoPredictor(GeoPredictor):
         normals = normals * is_inside + -normals * (1. - is_inside)
         return normals.cuda()
 
-    def __call__(self, img, gen_res=512, reg_loss_weight=1e-1,):
+    def __call__(
+            self,
+            img,
+            gen_res=512,
+            reg_loss_weight=1e-1,
+            depth_normalize="mean",
+            all_iter_steps=1500,
+    ):
         '''
         :param img: [H, W, 3]
         :param ref_distance: [H, W] or [H, W, 1]
@@ -228,7 +235,13 @@ class PanoGeoPredictor(GeoPredictor):
                     pred_depths.append(pred_depth)
                 pred_depths = torch.cat(pred_depths, dim=0)
 
-        pred_depths = pred_depths / (pred_depths.mean(dim=(1, 2, 3), keepdim=True) + 1e-5)
+        if depth_normalize == "mean":
+            pred_depths = pred_depths / (pred_depths.mean(dim=(1, 2, 3), keepdim=True) + 1e-5)
+        elif depth_normalize == "median":
+            medians = pred_depths.flatten(1).median(dim=1).values[:, None, None, None]
+            pred_depths = pred_depths / (medians + 1e-5)
+        elif depth_normalize != "none":
+            raise ValueError(f"Unknown depth normalization mode: {depth_normalize}")
         pred_distances_raw = pred_depths * pers_ratios[:n_pers_pc].permute(0, 3, 1, 2)
         pers_dirs_pc = pers_dirs_pc.permute(0, 3, 1, 2)
 
@@ -240,7 +253,6 @@ class PanoGeoPredictor(GeoPredictor):
         geo_field = GeometricField(fine_res = 2048).cuda()
 
         # Stage 1: Optimize global parameters
-        all_iter_steps = 1500
         lr_alpha = 1e-2
         init_lr = 1e-1
         init_lr_sp = 1e-2

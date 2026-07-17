@@ -9,13 +9,9 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from scene.cameras import Camera
 import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
-### midas ###
-from utils.depth_utils import estimate_depth
-#############
 
 # ### depth anything ###
 # import sys
@@ -28,6 +24,9 @@ from utils.depth_utils import estimate_depth
 WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale):
+    from scene.cameras import Camera
+    from utils.depth_utils import estimate_depth
+
     orig_w, orig_h = cam_info.image.size
 
     if args.resolution in [1, 2, 4, 8]:
@@ -76,7 +75,7 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args):
 
     return camera_list
 
-def camera_to_JSON(id, camera : Camera):
+def camera_to_JSON(id, camera):
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = camera.R.transpose()
     Rt[:3, 3] = camera.T

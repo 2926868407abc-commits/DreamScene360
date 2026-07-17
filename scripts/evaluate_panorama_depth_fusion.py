@@ -77,6 +77,11 @@ def canonical_method(name: str) -> str:
         "da3": "depth_anything3",
         "depthanything3": "depth_anything3",
         "depth_anything_3": "depth_anything3",
+        "dreamscene": "dreamscene360",
+        "dreamscene_360": "dreamscene360",
+        "pano_geo": "dreamscene360",
+        "panogeo": "dreamscene360",
+        "pano_geo_predictor": "dreamscene360",
         "geometryvlm": "g2vlm",
         "geometry_vlm": "g2vlm",
         "g2_vlm": "g2vlm",
@@ -123,6 +128,24 @@ def build_predictor(method: str, args: argparse.Namespace):
             chunk_size=args.vggt_chunk_size,
         )
     raise ValueError(f"Unknown monocular depth method: {method}")
+
+
+def build_dreamscene360_predictor(args: argparse.Namespace):
+    from geo_predictors.pano_geo_predictor import PanoGeoPredictor
+
+    return PanoGeoPredictor(
+        depth_predictor_name=canonical_method(args.dreamscene360_depth_predictor),
+        g2vlm_root=args.g2vlm_root or None,
+        g2vlm_model_path=args.g2vlm_model_path or None,
+        depth_anything3_model=args.depth_anything3_model,
+        depth_anything3_command=args.depth_anything3_command or None,
+        dap_root=args.dap_root or None,
+        dap_model_path=args.dap_model_path or None,
+        dap_command=args.dap_command or None,
+        vggt_root=args.vggt_root or None,
+        vggt_model_path=args.vggt_model_path or None,
+        vggt_chunk_size=args.vggt_chunk_size,
+    )
 
 
 def read_manifest(path: Path) -> list[ManifestItem]:
@@ -505,6 +528,28 @@ def fuse_perspective_depths(
     return fused
 
 
+def predict_dreamscene360_pano_depth(
+    pano_rgb: torch.Tensor,
+    predictor,
+    gen_res: int,
+    reg_loss_weight: float,
+    depth_normalize: str,
+    all_iter_steps: int,
+) -> torch.Tensor:
+    """Run DreamScene360's PanoGeo depth optimization on one panorama."""
+    pano_hwc = pano_rgb.permute(1, 2, 0).contiguous()
+    pred, *_ = predictor(
+        pano_hwc,
+        gen_res=gen_res,
+        reg_loss_weight=reg_loss_weight,
+        depth_normalize=depth_normalize,
+        all_iter_steps=all_iter_steps,
+    )
+    if pred.dim() == 3:
+        pred = pred[..., 0]
+    return pred.float()
+
+
 def resize_like(pred: torch.Tensor, target_hw: tuple[int, int]) -> torch.Tensor:
     if pred.shape == target_hw:
         return pred
@@ -647,8 +692,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate perspective-view monocular depth fused into panorama depth.")
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("panorama_depth_fusion_eval"))
-    parser.add_argument("--method", default="dap", help="Monocular depth predictor: omnidata, depth_anything3, dap, g2vlm, vggt_omega")
+    parser.add_argument(
+        "--method",
+        default="dap",
+        help="Method to evaluate: omnidata, depth_anything3, dap, g2vlm, vggt_omega, or dreamscene360.",
+    )
     parser.add_argument("--method-label", default="", help="Name used in output tables")
+    parser.add_argument("--max-items", type=int, default=0, help="Evaluate only the first N manifest rows; 0 means all rows.")
+    parser.add_argument("--seed", type=int, default=-1, help="Set numpy/torch seed when >= 0.")
     parser.add_argument("--yaw-count", type=int, default=12)
     parser.add_argument("--pitch-degrees", default="-45,0,45")
     parser.add_argument("--view-size", type=int, default=384)
@@ -677,6 +728,15 @@ def main() -> int:
     parser.add_argument("--max-depth", type=float, default=100.0)
     parser.add_argument("--save-predictions", action="store_true")
     parser.add_argument("--include-table3-direct-baselines", action="store_true")
+    parser.add_argument(
+        "--dreamscene360-depth-predictor",
+        default=os.getenv("DREAMSCENE360_DEPTH_PREDICTOR", "omnidata"),
+        help="Inner depth predictor used by --method dreamscene360.",
+    )
+    parser.add_argument("--pano-geo-gen-res", type=int, default=512)
+    parser.add_argument("--pano-geo-reg-loss-weight", type=float, default=1e-1)
+    parser.add_argument("--pano-geo-depth-normalize", choices=["none", "mean", "median"], default="mean")
+    parser.add_argument("--pano-geo-iters", type=int, default=1500)
     parser.add_argument("--depth-anything3-model", default="depth-anything/DA3-LARGE-1.1")
     parser.add_argument("--depth-anything3-command", default=os.getenv("DEPTH_ANYTHING3_COMMAND", ""))
     parser.add_argument("--dap-root", default=os.getenv("DAP_ROOT", ""))
@@ -699,10 +759,23 @@ def main() -> int:
         pred_dir.mkdir(parents=True, exist_ok=True)
 
     method = canonical_method(args.method)
-    method_label = args.method_label or f"{method}-perspective-fusion"
+    if args.seed >= 0:
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+    if method == "dreamscene360":
+        inner_method = canonical_method(args.dreamscene360_depth_predictor)
+        method_label = args.method_label or f"DreamScene360-PanoGeo-{inner_method}"
+    else:
+        method_label = args.method_label or f"{method}-perspective-fusion"
     pitch_degrees = [float(x) for x in args.pitch_degrees.split(",") if x.strip()]
     items = read_manifest(args.manifest)
-    predictor = build_predictor(method, args)
+    if args.max_items > 0:
+        items = items[: args.max_items]
+    if method == "dreamscene360":
+        predictor = build_dreamscene360_predictor(args)
+    else:
+        predictor = build_predictor(method, args)
     device = torch.device("cuda")
 
     per_image_rows: list[dict[str, object]] = []
@@ -711,21 +784,31 @@ def main() -> int:
         rgb = load_rgb(item.rgb_path).to(device)
         gt = load_depth(item.depth_path, item.depth_scale).to(device)
         mask = load_mask(item.mask_path, tuple(gt.shape)).to(device)
-        pred = fuse_perspective_depths(
-            pano_rgb=rgb,
-            predictor=predictor,
-            yaw_count=args.yaw_count,
-            pitch_degrees=pitch_degrees,
-            view_size=args.view_size,
-            fov_degrees=args.fov,
-            batch_size=args.batch_size,
-            center_weight_power=args.center_weight_power,
-            per_view_normalize=args.per_view_normalize,
-            overlap_align=args.overlap_align,
-            overlap_min_pixels=args.overlap_min_pixels,
-            overlap_scale_min=args.overlap_scale_min,
-            overlap_scale_max=args.overlap_scale_max,
-        )
+        if method == "dreamscene360":
+            pred = predict_dreamscene360_pano_depth(
+                pano_rgb=rgb,
+                predictor=predictor,
+                gen_res=args.pano_geo_gen_res,
+                reg_loss_weight=args.pano_geo_reg_loss_weight,
+                depth_normalize=args.pano_geo_depth_normalize,
+                all_iter_steps=args.pano_geo_iters,
+            )
+        else:
+            pred = fuse_perspective_depths(
+                pano_rgb=rgb,
+                predictor=predictor,
+                yaw_count=args.yaw_count,
+                pitch_degrees=pitch_degrees,
+                view_size=args.view_size,
+                fov_degrees=args.fov,
+                batch_size=args.batch_size,
+                center_weight_power=args.center_weight_power,
+                per_view_normalize=args.per_view_normalize,
+                overlap_align=args.overlap_align,
+                overlap_min_pixels=args.overlap_min_pixels,
+                overlap_scale_min=args.overlap_scale_min,
+                overlap_scale_max=args.overlap_scale_max,
+            )
         pred = pred * args.prediction_scale
         pred = resize_like(pred, tuple(gt.shape))
         scale_stats = depth_scale_stats(pred, gt, mask)
