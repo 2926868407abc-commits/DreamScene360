@@ -288,7 +288,7 @@ def perspective_dirs(
 
 
 def view_angles(yaw_count: int, pitch_degrees: Iterable[float]) -> list[tuple[float, float]]:
-    pitches = [float(p) for p in pitch_degrees]
+    pitches = sorted([float(p) for p in pitch_degrees], key=lambda p: (abs(p), p))
     return [
         (360.0 * yaw_index / yaw_count, pitch)
         for pitch in pitches
@@ -551,6 +551,30 @@ def compute_metrics(
     )
 
 
+def depth_scale_stats(pred: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor) -> dict[str, float]:
+    valid = mask & torch.isfinite(pred) & torch.isfinite(gt) & (pred > 0) & (gt > 0)
+    if int(valid.sum()) == 0:
+        nan = float("nan")
+        return {
+            "pred_median": nan,
+            "gt_median": nan,
+            "median_scale_to_gt": nan,
+            "pred_mean": nan,
+            "gt_mean": nan,
+        }
+    p = pred[valid].float()
+    g = gt[valid].float()
+    pred_median = p.median().clamp_min(1e-6)
+    gt_median = g.median()
+    return {
+        "pred_median": float(pred_median.item()),
+        "gt_median": float(gt_median.item()),
+        "median_scale_to_gt": float((gt_median / pred_median).item()),
+        "pred_mean": float(p.mean().item()),
+        "gt_mean": float(g.mean().item()),
+    }
+
+
 def mean_or_nan(values: list[float]) -> float:
     finite = [v for v in values if math.isfinite(v)]
     if not finite:
@@ -692,6 +716,7 @@ def main() -> int:
         )
         pred = pred * args.prediction_scale
         pred = resize_like(pred, tuple(gt.shape))
+        scale_stats = depth_scale_stats(pred, gt, mask)
         pred = align_prediction(pred, gt, mask, args.eval_align)
         metrics = compute_metrics(pred, gt, mask, args.min_depth, args.max_depth)
 
@@ -705,6 +730,7 @@ def main() -> int:
             "rmse": metrics.rmse,
             "delta1": metrics.delta1,
             "valid_pixels": metrics.valid_pixels,
+            **scale_stats,
         }
         per_image_rows.append(row)
         print(
@@ -730,6 +756,11 @@ def main() -> int:
         "rmse",
         "delta1",
         "valid_pixels",
+        "pred_median",
+        "gt_median",
+        "median_scale_to_gt",
+        "pred_mean",
+        "gt_mean",
     ]
     write_csv(args.output_dir / "metrics_per_image.csv", per_image_rows, per_image_fields)
 
