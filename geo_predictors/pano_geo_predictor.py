@@ -145,6 +145,7 @@ class PanoGeoPredictor(GeoPredictor):
             reg_loss_weight=1e-1,
             depth_normalize="mean",
             all_iter_steps=1500,
+            num_perspectives=20,
     ):
         '''
         :param img: [H, W, 3]
@@ -201,8 +202,12 @@ class PanoGeoPredictor(GeoPredictor):
 
         ####################################### Start Optimization #####################################################
 
-        pers_imgs_pc = pers_imgs[:20]
-        pers_dirs_pc = pers_dirs[:20]
+        if num_perspectives <= 0:
+            raise ValueError(f"num_perspectives must be positive, got {num_perspectives}")
+        num_perspectives = min(int(num_perspectives), len(pers_imgs))
+
+        pers_imgs_pc = pers_imgs[:num_perspectives]
+        pers_dirs_pc = pers_dirs[:num_perspectives]
         n_pers_pc = len(pers_dirs_pc)
 
         intrinsics = [

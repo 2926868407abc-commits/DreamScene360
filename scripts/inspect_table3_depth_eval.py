@@ -33,6 +33,16 @@ def mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
+def median(values: list[float]) -> float:
+    values = sorted(v for v in values if math.isfinite(v))
+    if not values:
+        return float("nan")
+    mid = len(values) // 2
+    if len(values) % 2:
+        return values[mid]
+    return (values[mid - 1] + values[mid]) * 0.5
+
+
 def fmt(value: float) -> str:
     if not math.isfinite(value):
         return "NA"
@@ -91,11 +101,13 @@ def print_scale_diagnostics(output_dir: Path, worst: int) -> None:
         print(
             f"  {dataset}: "
             f"mean_scale_to_gt={fmt(mean(scales))} "
+            f"median_scale_to_gt={fmt(median(scales))} "
             f"mean_pred_median={fmt(mean(pred_medians))} "
             f"mean_gt_median={fmt(mean(gt_medians))} "
             f"mean_absrel={fmt(mean(abs_rels))} "
             f"mean_delta1={fmt(mean(delta1s))}"
         )
+        print(f"    fixed-scale command arg: --scale {dataset}={fmt(median(scales))}")
 
         ranked = sorted(dataset_rows, key=lambda row: to_float(row.get("abs_rel", "")), reverse=True)
         for row in ranked[:worst]:

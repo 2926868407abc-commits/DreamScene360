@@ -565,6 +565,7 @@ def predict_dreamscene360_pano_depth(
     reg_loss_weight: float,
     depth_normalize: str,
     all_iter_steps: int,
+    num_perspectives: int,
 ) -> torch.Tensor:
     """Run DreamScene360's PanoGeo depth optimization on one panorama."""
     pano_hwc = pano_rgb.permute(1, 2, 0).contiguous()
@@ -574,9 +575,31 @@ def predict_dreamscene360_pano_depth(
         reg_loss_weight=reg_loss_weight,
         depth_normalize=depth_normalize,
         all_iter_steps=all_iter_steps,
+        num_perspectives=num_perspectives,
     )
     if pred.dim() == 3:
         pred = pred[..., 0]
+    return pred.float()
+
+
+def predict_direct_panorama_depth(
+    pano_rgb: torch.Tensor,
+    predictor,
+) -> torch.Tensor:
+    """Run a depth predictor directly on the full panorama image."""
+    image = pano_rgb[None]
+    with torch.no_grad():
+        if hasattr(predictor, "predict_depth_batch"):
+            pred = predictor.predict_depth_batch(image, intrinsics=[{}])
+        else:
+            pred = predictor.predict_depth(image, intri={})
+
+    if pred.dim() == 4:
+        pred = pred[0, 0]
+    elif pred.dim() == 3:
+        pred = pred[0]
+    elif pred.dim() != 2:
+        raise ValueError(f"Unexpected direct panorama prediction shape: {tuple(pred.shape)}")
     return pred.float()
 
 
@@ -805,6 +828,12 @@ def main() -> int:
         default="dap",
         help="Method to evaluate: omnidata, depth_anything3, dap, g2vlm, vggt_omega, or dreamscene360.",
     )
+    parser.add_argument(
+        "--eval-mode",
+        choices=["perspective_fusion", "direct_panorama"],
+        default="perspective_fusion",
+        help="perspective_fusion cuts perspective views and fuses them; direct_panorama predicts depth on the full panorama.",
+    )
     parser.add_argument("--method-label", default="", help="Name used in output tables")
     parser.add_argument("--datasets", default="", help="Comma-separated dataset names to evaluate, for example Matterport3D,Stanford2D3D.")
     parser.add_argument("--max-items", type=int, default=0, help="Evaluate only the first N manifest rows; 0 means all rows.")
@@ -847,6 +876,12 @@ def main() -> int:
     parser.add_argument("--pano-geo-reg-loss-weight", type=float, default=1e-1)
     parser.add_argument("--pano-geo-depth-normalize", choices=["none", "mean", "median"], default="mean")
     parser.add_argument("--pano-geo-iters", type=int, default=1500)
+    parser.add_argument(
+        "--pano-geo-num-perspectives",
+        type=int,
+        default=20,
+        help="Number of DreamScene360 perspective depth views used by PanoGeo optimization.",
+    )
     parser.add_argument("--depth-anything3-model", default="depth-anything/DA3-LARGE-1.1")
     parser.add_argument("--depth-anything3-command", default=os.getenv("DEPTH_ANYTHING3_COMMAND", ""))
     parser.add_argument("--dap-root", default=os.getenv("DAP_ROOT", ""))
@@ -874,8 +909,12 @@ def main() -> int:
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
     if method == "dreamscene360":
+        if args.eval_mode == "direct_panorama":
+            raise ValueError("--method dreamscene360 already runs PanoGeo fusion and cannot use --eval-mode direct_panorama.")
         inner_method = canonical_method(args.dreamscene360_depth_predictor)
         method_label = args.method_label or f"DreamScene360-PanoGeo-{inner_method}"
+    elif args.eval_mode == "direct_panorama":
+        method_label = args.method_label or f"{method}-direct-panorama"
     else:
         method_label = args.method_label or f"{method}-perspective-fusion"
     pitch_degrees = [float(x) for x in args.pitch_degrees.split(",") if x.strip()]
@@ -907,6 +946,12 @@ def main() -> int:
                 reg_loss_weight=args.pano_geo_reg_loss_weight,
                 depth_normalize=args.pano_geo_depth_normalize,
                 all_iter_steps=args.pano_geo_iters,
+                num_perspectives=args.pano_geo_num_perspectives,
+            )
+        elif args.eval_mode == "direct_panorama":
+            pred = predict_direct_panorama_depth(
+                pano_rgb=rgb,
+                predictor=predictor,
             )
         else:
             pred = fuse_perspective_depths(
