@@ -42,6 +42,7 @@ class DatasetSpec:
     label: str
     default_dirs: tuple[str, ...]
     depth_scale: str
+    pano_only: bool = False
 
 
 DATASETS = {
@@ -54,6 +55,7 @@ DATASETS = {
         label="Stanford2D3D",
         default_dirs=("Stanford2D3D", "2D-3D-S", "2D3DS"),
         depth_scale="512",
+        pano_only=True,
     ),
     "deep360": DatasetSpec(
         label="Deep360",
@@ -95,6 +97,12 @@ def is_depth_file(path: Path) -> bool:
     return path.suffix.lower() in IMAGE_SUFFIXES and any(hint in lower for hint in DEPTH_HINTS)
 
 
+def is_pano_file(path: Path) -> bool:
+    lower_parts = {part.lower() for part in path.parts}
+    lower = str(path).lower()
+    return "pano" in lower_parts or "equirectangular" in lower or "panorama" in lower
+
+
 def score_pair(rgb: Path, depth: Path, root: Path) -> tuple[int, int]:
     rgb_parts = set(p.lower() for p in rgb.relative_to(root).parts[:-1])
     depth_parts = set(p.lower() for p in depth.relative_to(root).parts[:-1])
@@ -117,8 +125,10 @@ def find_dataset_root(repo_root: Path, spec: DatasetSpec) -> Path | None:
     return None
 
 
-def pair_dataset(root: Path, limit: int) -> list[tuple[Path, Path]]:
+def pair_dataset(root: Path, limit: int, pano_only: bool = False) -> list[tuple[Path, Path]]:
     files = [p for p in root.rglob("*") if p.is_file()]
+    if pano_only:
+        files = [p for p in files if is_pano_file(p)]
     rgbs = sorted(p for p in files if is_rgb_file(p))
     depths = sorted(p for p in files if is_depth_file(p))
 
@@ -168,7 +178,7 @@ def main() -> int:
             print(f"[warn] {spec.label}: dataset folder not found under {repo_root / 'datasets'}")
             continue
 
-        pairs = pair_dataset(root, args.max_per_dataset)
+        pairs = pair_dataset(root, args.max_per_dataset, pano_only=spec.pano_only)
         print(f"[info] {spec.label}: paired {len(pairs)} samples from {root}")
         if args.verbose:
             for rgb, depth in pairs[:10]:
