@@ -160,7 +160,7 @@ def main() -> int:
     for row in rows:
         stats = by_dataset.setdefault(str(row["dataset"]), {"total": 0, "valid": 0})
         stats["total"] += 1
-        if bool(row["shape_match"]) and bool(row["is_equirectangular"]):
+        if bool(row["shape_match"]) and bool(row["aspect_ok"]):
             stats["valid"] += 1
 
     print("| Dataset | Shape/Aspect Valid | Pano Path Hint | Total |")
