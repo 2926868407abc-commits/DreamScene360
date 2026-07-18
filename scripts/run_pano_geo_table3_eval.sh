@@ -28,6 +28,8 @@ SEED="${SEED:-0}"
 
 # Default to the current small check set. Use MAX_ITEMS=0 for the full manifest.
 MAX_ITEMS="${MAX_ITEMS:-5}"
+MAX_PER_DATASET="${MAX_PER_DATASET:-0}"
+DATASETS="${DATASETS:-}"
 
 RUN_SMOKE="${RUN_SMOKE:-1}"
 RUN_EVAL="${RUN_EVAL:-1}"
@@ -78,6 +80,8 @@ common_args=(
   --manifest "$MANIFEST"
   --method dreamscene360
   --method-label "$METHOD_LABEL"
+  --datasets "$DATASETS"
+  --max-per-dataset "$MAX_PER_DATASET"
   --dreamscene360-depth-predictor "$INNER_DEPTH_PREDICTOR"
   --pano-geo-gen-res "$GEN_RES"
   --pano-geo-reg-loss-weight "$REG_LOSS_WEIGHT"
@@ -118,7 +122,9 @@ echo "[config] prediction scale: $PREDICTION_SCALE"
 echo "[config] gen res: $GEN_RES"
 echo "[config] pano geo depth normalize: $PANO_GEO_DEPTH_NORMALIZE"
 echo "[config] pano geo iters: $PANO_GEO_ITERS"
+echo "[config] datasets: ${DATASETS:-all}"
 echo "[config] max items: $MAX_ITEMS"
+echo "[config] max per dataset: $MAX_PER_DATASET"
 
 if [[ "$RUN_SMOKE" == "1" ]]; then
   smoke_dir="${OUTPUT_PREFIX}_${INNER_DEPTH_PREDICTOR}_${EVAL_ALIGN}_smoke"

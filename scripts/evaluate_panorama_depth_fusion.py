@@ -171,6 +171,36 @@ def read_manifest(path: Path) -> list[ManifestItem]:
     return items
 
 
+def parse_name_set(text: str) -> set[str]:
+    return {name.strip() for name in text.split(",") if name.strip()}
+
+
+def filter_manifest_items(
+    items: list[ManifestItem],
+    datasets: str,
+    max_items: int,
+    max_per_dataset: int,
+) -> list[ManifestItem]:
+    dataset_names = parse_name_set(datasets)
+    if dataset_names:
+        items = [item for item in items if item.dataset in dataset_names]
+
+    if max_per_dataset > 0:
+        counts: dict[str, int] = {}
+        selected: list[ManifestItem] = []
+        for item in items:
+            count = counts.get(item.dataset, 0)
+            if count >= max_per_dataset:
+                continue
+            selected.append(item)
+            counts[item.dataset] = count + 1
+        items = selected
+
+    if max_items > 0:
+        items = items[:max_items]
+    return items
+
+
 def load_rgb(path: Path) -> torch.Tensor:
     image = Image.open(path).convert("RGB")
     array = np.asarray(image).astype(np.float32) / 255.0
@@ -673,6 +703,84 @@ def markdown_table(rows: list[dict[str, object]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_delta(value: object) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "NA"
+    if not math.isfinite(number):
+        return "NA"
+    return f"{number:+.4f}"
+
+
+def format_bool(value: object) -> str:
+    return "YES" if bool(value) else "NO"
+
+
+def build_direct_comparison_rows(
+    rows: list[dict[str, object]],
+    baseline_method: str = "DAP-Direct-Table3",
+) -> list[dict[str, object]]:
+    comparisons: list[dict[str, object]] = []
+    for row in rows:
+        dataset = str(row["dataset"])
+        baseline = TABLE3_DIRECT_BASELINES.get(dataset, {}).get(baseline_method)
+        if baseline is None:
+            continue
+
+        abs_rel = float(row["abs_rel"])
+        rmse = float(row["rmse"])
+        delta1 = float(row["delta1"])
+        baseline_abs_rel = float(baseline["abs_rel"])
+        baseline_rmse = float(baseline["rmse"])
+        baseline_delta1 = float(baseline["delta1"])
+
+        abs_rel_better = abs_rel < baseline_abs_rel
+        rmse_better = rmse < baseline_rmse
+        delta1_better = delta1 > baseline_delta1
+        comparisons.append(
+            {
+                "dataset": dataset,
+                "method": row["method"],
+                "baseline_method": baseline_method,
+                "abs_rel": abs_rel,
+                "baseline_abs_rel": baseline_abs_rel,
+                "abs_rel_delta": abs_rel - baseline_abs_rel,
+                "abs_rel_better": abs_rel_better,
+                "rmse": rmse,
+                "baseline_rmse": baseline_rmse,
+                "rmse_delta": rmse - baseline_rmse,
+                "rmse_better": rmse_better,
+                "delta1": delta1,
+                "baseline_delta1": baseline_delta1,
+                "delta1_delta": delta1 - baseline_delta1,
+                "delta1_better": delta1_better,
+                "all_metrics_better": abs_rel_better and rmse_better and delta1_better,
+            }
+        )
+    return comparisons
+
+
+def comparison_markdown(rows: list[dict[str, object]]) -> str:
+    lines = [
+        "| Dataset | Method | Baseline | AbsRel delta | RMSE delta | delta1 delta | All better |",
+        "|---|---|---|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            "| {dataset} | {method} | {baseline_method} | {abs_rel_delta} | {rmse_delta} | {delta1_delta} | {all_better} |".format(
+                dataset=row["dataset"],
+                method=row["method"],
+                baseline_method=row["baseline_method"],
+                abs_rel_delta=format_delta(row.get("abs_rel_delta")),
+                rmse_delta=format_delta(row.get("rmse_delta")),
+                delta1_delta=format_delta(row.get("delta1_delta")),
+                all_better=format_bool(row.get("all_metrics_better")),
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
 def add_table3_baselines(rows: list[dict[str, object]]) -> None:
     for dataset, methods in TABLE3_DIRECT_BASELINES.items():
         for method, metrics in methods.items():
@@ -698,7 +806,9 @@ def main() -> int:
         help="Method to evaluate: omnidata, depth_anything3, dap, g2vlm, vggt_omega, or dreamscene360.",
     )
     parser.add_argument("--method-label", default="", help="Name used in output tables")
+    parser.add_argument("--datasets", default="", help="Comma-separated dataset names to evaluate, for example Matterport3D,Stanford2D3D.")
     parser.add_argument("--max-items", type=int, default=0, help="Evaluate only the first N manifest rows; 0 means all rows.")
+    parser.add_argument("--max-per-dataset", type=int, default=0, help="Evaluate at most N rows from each dataset; 0 means no per-dataset cap.")
     parser.add_argument("--seed", type=int, default=-1, help="Set numpy/torch seed when >= 0.")
     parser.add_argument("--yaw-count", type=int, default=12)
     parser.add_argument("--pitch-degrees", default="-45,0,45")
@@ -769,9 +879,14 @@ def main() -> int:
     else:
         method_label = args.method_label or f"{method}-perspective-fusion"
     pitch_degrees = [float(x) for x in args.pitch_degrees.split(",") if x.strip()]
-    items = read_manifest(args.manifest)
-    if args.max_items > 0:
-        items = items[: args.max_items]
+    items = filter_manifest_items(
+        read_manifest(args.manifest),
+        datasets=args.datasets,
+        max_items=args.max_items,
+        max_per_dataset=args.max_per_dataset,
+    )
+    if not items:
+        raise RuntimeError("No manifest items selected. Check --manifest, --datasets, and max item filters.")
     if method == "dreamscene360":
         predictor = build_dreamscene360_predictor(args)
     else:
@@ -871,6 +986,33 @@ def main() -> int:
                 "delta1": mean_or_nan([float(row["delta1"]) for row in rows]),
                 "num_images": len(rows),
             }
+        )
+
+    evaluated_summary_rows = list(summary_rows)
+    comparison = build_direct_comparison_rows(evaluated_summary_rows)
+    if comparison:
+        comparison_fields = [
+            "dataset",
+            "method",
+            "baseline_method",
+            "abs_rel",
+            "baseline_abs_rel",
+            "abs_rel_delta",
+            "abs_rel_better",
+            "rmse",
+            "baseline_rmse",
+            "rmse_delta",
+            "rmse_better",
+            "delta1",
+            "baseline_delta1",
+            "delta1_delta",
+            "delta1_better",
+            "all_metrics_better",
+        ]
+        write_csv(args.output_dir / "table3_direct_comparison.csv", comparison, comparison_fields)
+        (args.output_dir / "table3_direct_comparison.md").write_text(
+            comparison_markdown(comparison),
+            encoding="utf-8",
         )
 
     if args.include_table3_direct_baselines:
