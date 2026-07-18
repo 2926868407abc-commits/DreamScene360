@@ -44,8 +44,9 @@ TORCH_HOME="${TORCH_HOME:-/mnt/data/wangqq/torch_cache}"
 export HF_ENDPOINT HF_HOME TORCH_HOME
 
 DEPTH_ANYTHING3_MODEL="${DEPTH_ANYTHING3_MODEL:-depth-anything/DA3-LARGE-1.1}"
+DEPTH_ANYTHING3_BATCH_SIZE="${DEPTH_ANYTHING3_BATCH_SIZE:-8}"
 if [[ -z "${DEPTH_ANYTHING3_COMMAND:-}" ]]; then
-  DEPTH_ANYTHING3_COMMAND="${DA3_ENV}/bin/python ${PROJECT_DIR}/scripts/run_depth_anything3_external.py --input-dir {input_dir} --output-dir {output_dir} --model {model_id}"
+  DEPTH_ANYTHING3_COMMAND="${DA3_ENV}/bin/python ${PROJECT_DIR}/scripts/run_depth_anything3_external.py --input-dir {input_dir} --output-dir {output_dir} --model {model_id} --batch-size ${DEPTH_ANYTHING3_BATCH_SIZE}"
 fi
 
 DAP_ROOT="${DAP_ROOT:-/mnt/data/wangqq/DAP}"
