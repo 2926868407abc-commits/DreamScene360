@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,26 +126,57 @@ def find_dataset_root(repo_root: Path, spec: DatasetSpec) -> Path | None:
     return None
 
 
+def collect_candidates(root: Path, pano_only: bool) -> tuple[list[Path], list[Path]]:
+    rgbs: list[Path] = []
+    depths: list[Path] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if pano_only and not is_pano_file(path):
+            continue
+        if is_depth_file(path):
+            depths.append(path)
+        elif is_rgb_file(path):
+            rgbs.append(path)
+    return sorted(rgbs), sorted(depths)
+
+
 def pair_dataset(root: Path, limit: int, pano_only: bool = False) -> list[tuple[Path, Path]]:
-    files = [p for p in root.rglob("*") if p.is_file()]
-    if pano_only:
-        files = [p for p in files if is_pano_file(p)]
-    rgbs = sorted(p for p in files if is_rgb_file(p))
-    depths = sorted(p for p in files if is_depth_file(p))
+    rgbs, depths = collect_candidates(root, pano_only)
+    print(f"[scan] {root}: rgb={len(rgbs)} depth={len(depths)} pano_only={pano_only}", flush=True)
+
+    by_file_key: dict[str, list[Path]] = defaultdict(list)
+    by_stem_key: dict[str, list[Path]] = defaultdict(list)
+    for rgb in rgbs:
+        by_file_key[file_key(rgb, root)].append(rgb)
+        by_stem_key[stem_key(rgb)].append(rgb)
 
     pairs: list[tuple[Path, Path]] = []
     used_rgbs: set[Path] = set()
-    for depth in depths:
-        candidates = [rgb for rgb in rgbs if rgb not in used_rgbs]
+
+    def take_best(candidates: list[Path], depth: Path) -> Path | None:
+        candidates = [rgb for rgb in candidates if rgb not in used_rgbs]
         if not candidates:
-            break
+            return None
         best = max(candidates, key=lambda rgb: score_pair(rgb, depth, root))
         if score_pair(best, depth, root)[0] <= 0:
+            return None
+        return best
+
+    for depth in depths:
+        candidates = by_file_key.get(file_key(depth, root), [])
+        best = take_best(candidates, depth)
+        if best is None:
+            candidates = by_stem_key.get(stem_key(depth), [])
+            best = take_best(candidates, depth)
+        if best is None:
             continue
+
         pairs.append((best, depth))
         used_rgbs.add(best)
         if limit > 0 and len(pairs) >= limit:
             break
+
     return pairs
 
 

@@ -33,6 +33,9 @@ PANO_GEO_DEPTH_NORMALIZE="${PANO_GEO_DEPTH_NORMALIZE:-none}"
 DEPTH_ANYTHING3_BATCH_SIZE="${DEPTH_ANYTHING3_BATCH_SIZE:-4}"
 SAVE_PREDICTIONS="${SAVE_PREDICTIONS:-1}"
 RUN_EVAL="${RUN_EVAL:-1}"
+RUN_FUSION="${RUN_FUSION:-1}"
+RUN_DIRECT="${RUN_DIRECT:-1}"
+RUN_COMPARE="${RUN_COMPARE:-1}"
 
 HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 HF_HOME="${HF_HOME:-/mnt/data/wangqq/hf_cache}"
@@ -62,7 +65,7 @@ echo "[stage] audit full manifest"
   --expected-aspect 2.0 \
   --fail-on-invalid
 
-cat "$AUDIT_DIR/audit.md"
+echo "[info] full audit table: $AUDIT_DIR/audit.md"
 
 echo "[stage] count manifest rows"
 "$PYTHON_BIN" - "$MANIFEST" <<'PY'
@@ -91,9 +94,9 @@ echo "[stage] run full direct-vs-fusion comparison"
 DATASETS="$DATASETS" \
 MAX_PER_DATASET="$MAX_PER_DATASET" \
 MANIFEST="$MANIFEST" \
-RUN_FUSION=1 \
-RUN_DIRECT=1 \
-RUN_COMPARE=1 \
+RUN_FUSION="$RUN_FUSION" \
+RUN_DIRECT="$RUN_DIRECT" \
+RUN_COMPARE="$RUN_COMPARE" \
 SAVE_PREDICTIONS="$SAVE_PREDICTIONS" \
 DIRECT_METHOD="$DIRECT_METHOD" \
 DIRECT_LABEL="$DIRECT_LABEL" \
