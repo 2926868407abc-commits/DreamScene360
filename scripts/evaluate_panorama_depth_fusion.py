@@ -242,6 +242,24 @@ def load_depth(path: Path, depth_scale: float = 1.0) -> torch.Tensor:
     return torch.from_numpy(depth)
 
 
+def normalize_dataset_layout(
+    dataset: str,
+    rgb: torch.Tensor,
+    depth: torch.Tensor,
+    mask: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Normalize dataset-specific panorama storage layouts before evaluation."""
+
+    if dataset == "Deep360" and rgb.shape[-2] == depth.shape[-2] == 2 * rgb.shape[-1]:
+        # Deep360 files are stored as 1024x512 arrays even though the panorama
+        # resolution is documented as 1024x512 width x height. Transpose to the
+        # equirectangular layout expected by the fusion/direct predictors.
+        rgb = rgb.transpose(-2, -1).contiguous()
+        depth = depth.transpose(-2, -1).contiguous()
+        mask = mask.transpose(-2, -1).contiguous()
+    return rgb, depth, mask
+
+
 def load_mask(path: Path | None, shape: tuple[int, int]) -> torch.Tensor:
     if path is None:
         return torch.ones(shape, dtype=torch.bool)
@@ -938,6 +956,7 @@ def main() -> int:
         rgb = load_rgb(item.rgb_path).to(device)
         gt = load_depth(item.depth_path, item.depth_scale).to(device)
         mask = load_mask(item.mask_path, tuple(gt.shape)).to(device)
+        rgb, gt, mask = normalize_dataset_layout(item.dataset, rgb, gt, mask)
         if method == "dreamscene360":
             pred = predict_dreamscene360_pano_depth(
                 pano_rgb=rgb,

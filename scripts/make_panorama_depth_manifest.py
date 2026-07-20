@@ -44,6 +44,7 @@ class DatasetSpec:
     default_dirs: tuple[str, ...]
     depth_scale: str
     pano_only: bool = False
+    pair_mode: str = "generic"
 
 
 DATASETS = {
@@ -62,6 +63,7 @@ DATASETS = {
         label="Deep360",
         default_dirs=("Deep360",),
         depth_scale="",
+        pair_mode="deep360_testing",
     ),
 }
 
@@ -180,6 +182,41 @@ def pair_dataset(root: Path, limit: int, pano_only: bool = False) -> list[tuple[
     return pairs
 
 
+def pair_deep360_testing(root: Path, limit: int) -> list[tuple[Path, Path]]:
+    """Pair Deep360 testing camera-1 RGB panoramas with metric depth maps.
+
+    Deep360 stores one metric depth map per frame in depth/*_depth.npz, referenced
+    to camera 1. The rgb folder contains rectified stereo panoramas for each
+    camera pair; use the camera-1 image from pair 1-2 as a deterministic view.
+    """
+
+    pairs: list[tuple[Path, Path]] = []
+    split_dirs = sorted(root.glob("ep*_500frames/testing"))
+    for split_dir in split_dirs:
+        depth_dir = split_dir / "depth"
+        rgb_dir = split_dir / "rgb"
+        if not depth_dir.exists() or not rgb_dir.exists():
+            continue
+        for depth in sorted(depth_dir.glob("*_depth.npz")):
+            frame = depth.name[: -len("_depth.npz")]
+            rgb = rgb_dir / f"{frame}_12_rgb1.png"
+            if not rgb.exists():
+                fallback = sorted(rgb_dir.glob(f"{frame}_*_rgb1.png"))
+                if not fallback:
+                    continue
+                rgb = fallback[0]
+            pairs.append((rgb, depth))
+            if limit > 0 and len(pairs) >= limit:
+                print(
+                    f"[scan] {root}: paired Deep360 testing rgb/depth={len(pairs)}",
+                    flush=True,
+                )
+                return pairs
+
+    print(f"[scan] {root}: paired Deep360 testing rgb/depth={len(pairs)}", flush=True)
+    return pairs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create panorama depth evaluation manifest.")
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -210,7 +247,10 @@ def main() -> int:
             print(f"[warn] {spec.label}: dataset folder not found under {repo_root / 'datasets'}")
             continue
 
-        pairs = pair_dataset(root, args.max_per_dataset, pano_only=spec.pano_only)
+        if spec.pair_mode == "deep360_testing":
+            pairs = pair_deep360_testing(root, args.max_per_dataset)
+        else:
+            pairs = pair_dataset(root, args.max_per_dataset, pano_only=spec.pano_only)
         print(f"[info] {spec.label}: paired {len(pairs)} samples from {root}")
         if args.verbose:
             for rgb, depth in pairs[:10]:
