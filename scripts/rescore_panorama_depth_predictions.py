@@ -34,7 +34,9 @@ from scripts.evaluate_panorama_depth_fusion import (  # noqa: E402
     depth_scale_stats,
     load_depth,
     load_mask,
+    load_rgb,
     markdown_table,
+    normalize_dataset_layout,
     resize_like,
     write_csv,
 )
@@ -78,6 +80,9 @@ def load_prediction_case(row: dict[str, str], prediction_dir: Path) -> dict[str,
     gt = load_depth(Path(row["depth_path"]).expanduser(), float(row["depth_scale"] or 1.0))
     mask_path = row.get("mask_path", "").strip()
     mask = load_mask(Path(mask_path).expanduser() if mask_path else None, tuple(gt.shape))
+    if dataset == "Deep360":
+        rgb = load_rgb(Path(row["rgb_path"]).expanduser())
+        _, gt, mask = normalize_dataset_layout(dataset, rgb, gt, mask)
     pred = torch.from_numpy(np.load(pred_path).squeeze().astype(np.float32))
     pred = resize_like(pred, tuple(gt.shape))
     return {
@@ -90,13 +95,21 @@ def load_prediction_case(row: dict[str, str], prediction_dir: Path) -> dict[str,
     }
 
 
-def compute_scale_to_gt(case: dict[str, object]) -> float:
-    stats = depth_scale_stats(
-        case["pred"],  # type: ignore[arg-type]
-        case["gt"],  # type: ignore[arg-type]
-        case["mask"],  # type: ignore[arg-type]
+def compute_scale_to_gt(case: dict[str, object], min_depth: float, max_depth: float) -> float:
+    pred = case["pred"]  # type: ignore[assignment]
+    gt = case["gt"]  # type: ignore[assignment]
+    mask = case["mask"]  # type: ignore[assignment]
+    valid = (
+        mask.bool()
+        & torch.isfinite(pred)
+        & torch.isfinite(gt)
+        & (pred > min_depth)
+        & (gt > min_depth)
+        & (gt < max_depth)
     )
-    return float(stats["median_scale_to_gt"])
+    if not bool(valid.any()):
+        return float("nan")
+    return float((gt[valid].median() / pred[valid].clamp_min(1e-6).median().clamp_min(1e-6)).item())
 
 
 def split_cases(
@@ -122,19 +135,27 @@ def split_cases(
     return calibration, test
 
 
-def scales_from_calibration(cases: list[dict[str, object]]) -> dict[str, float]:
+def scales_from_calibration(
+    cases: list[dict[str, object]],
+    min_depth: float,
+    max_depth: float,
+) -> dict[str, float]:
     by_dataset: dict[str, list[float]] = defaultdict(list)
     for case in cases:
-        scale = compute_scale_to_gt(case)
+        scale = compute_scale_to_gt(case, min_depth, max_depth)
         if math.isfinite(scale):
             by_dataset[str(case["dataset"])].append(scale)
     return {dataset: float(median(scales)) for dataset, scales in by_dataset.items() if scales}
 
 
-def leave_one_out_scales(cases: list[dict[str, object]]) -> dict[tuple[str, str], float]:
+def leave_one_out_scales(
+    cases: list[dict[str, object]],
+    min_depth: float,
+    max_depth: float,
+) -> dict[tuple[str, str], float]:
     by_dataset: dict[str, list[tuple[str, float]]] = defaultdict(list)
     for case in cases:
-        scale = compute_scale_to_gt(case)
+        scale = compute_scale_to_gt(case, min_depth, max_depth)
         if math.isfinite(scale):
             by_dataset[str(case["dataset"])].append((str(case["scene"]), scale))
 
@@ -161,6 +182,11 @@ def main() -> int:
         help="For each image, estimate the dataset scale from all other available images in the same dataset.",
     )
     parser.add_argument(
+        "--per-image-median-scale",
+        action="store_true",
+        help="Diagnostic upper bound: scale each prediction by that image's GT median ratio.",
+    )
+    parser.add_argument(
         "--calibration-count-per-dataset",
         type=int,
         default=0,
@@ -178,6 +204,12 @@ def main() -> int:
     args = parser.parse_args()
     if args.leave_one_out_scale and args.calibration_count_per_dataset > 0:
         raise ValueError("--leave-one-out-scale cannot be combined with --calibration-count-per-dataset.")
+    if args.per_image_median_scale and (
+        args.leave_one_out_scale or args.calibration_count_per_dataset > 0 or args.scale
+    ):
+        raise ValueError(
+            "--per-image-median-scale cannot be combined with manual, calibration, or leave-one-out scales."
+        )
 
     scales = parse_scales(args.scale)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -200,7 +232,7 @@ def main() -> int:
             "No predictions left for evaluation. Reduce --calibration-count-per-dataset "
             "or check --prediction-dir."
         )
-    calibration_scales = scales_from_calibration(calibration_cases)
+    calibration_scales = scales_from_calibration(calibration_cases, args.min_depth, args.max_depth)
     scales = {**calibration_scales, **scales}
     if calibration_cases:
         scale_rows = [
@@ -216,7 +248,7 @@ def main() -> int:
         for row in scale_rows:
             print(f"  --scale {row['dataset']}={float(row['scale']):.6f}")
 
-    loo_scales = leave_one_out_scales(eval_cases) if args.leave_one_out_scale else {}
+    loo_scales = leave_one_out_scales(eval_cases, args.min_depth, args.max_depth) if args.leave_one_out_scale else {}
     if args.leave_one_out_scale:
         print("[leave-one-out scales]")
         for dataset, scene in sorted(loo_scales):
@@ -230,7 +262,10 @@ def main() -> int:
         gt = case["gt"]  # type: ignore[assignment]
         mask = case["mask"]  # type: ignore[assignment]
         pred = case["pred"]  # type: ignore[assignment]
-        if dataset in scales:
+        if args.per_image_median_scale:
+            scale = compute_scale_to_gt(case, args.min_depth, args.max_depth)
+            scale_source = "per_image_median_gt_ratio"
+        elif dataset in scales:
             scale = scales[dataset]
             scale_source = "manual_or_calibration"
         elif (dataset, scene) in loo_scales:

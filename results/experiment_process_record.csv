@@ -1,0 +1,9 @@
+Stage,Setting / Method,Dataset,Result Summary,Problem / Observation,Next Fix
+1,DA3 direct panorama depth,"Matterport3D; Stanford2D3D",得到 direct baseline,作为对照组,后续 fusion 结果都与它比较
+2,"Perspective fusion, raw metric scale","Matterport3D; Stanford2D3D","AbsRel 有时变好，但 RMSE/delta1 不稳定",单目深度尺度不可靠,加入 scale diagnostics 和 fixed scale calibration
+3,Stanford2D3D 数据检查,Stanford2D3D,"初始 manifest 中曾选到 1080x1080 perspective image",不是全景图，和 Table3 panorama benchmark 口径不一致,改为选择 2048x4096 equirectangular panorama
+4,P24-I100 PanoGeo,"Matterport3D; Stanford2D3D","Matterport3D 有提升，Stanford2D3D mixed",纯 fusion 对 Stanford2D3D 不够稳定,尝试 direct-guided blend
+5,P24-I100 direct-guided blend,"Matterport3D; Stanford2D3D",两个数据集平均指标均优于 direct,证明 direct depth 与 PanoGeo fusion 互补,提高 PanoGeo 设置到 P60-I300
+6,P60-I300 direct-guided blend,"Matterport3D; Stanford2D3D",三项指标全部提升,最稳定的 indoor 结果,作为最终 indoor 结果
+7,Deep360 raw metric PanoGeo,Deep360,"PanoGeo raw: 0.9299 / 23.7697 / 0.0000",raw metric scale 下没有提升,检查尺度并使用 fixed-scale calibration
+8,Deep360 fixed-scale PanoGeo,Deep360,"AbsRel 2.2448 -> 0.6195; RMSE 18.5921 -> 12.2246; delta1 0.1528 -> 0.3002",尺度校准后 fusion 明显有效,作为当前 Deep360 有效结果

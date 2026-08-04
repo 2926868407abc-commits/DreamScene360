@@ -1,0 +1,9 @@
+Order,Experiment Setting,Dataset,Observation,Failure Reason / Analysis,Fix / Next Step,Result
+1,确定实验目标,"Matterport3D; Stanford2D3D; Deep360","比较 direct panorama depth 和 perspective fusion / PanoGeo","需要统一评价指标和数据口径","使用 AbsRel/RMSE/delta1，参考 DAP Table 3","确定实验路线"
+2,DA3 direct panorama depth,"Matterport3D; Stanford2D3D; Deep360","MP/S2D3D 可作为 baseline，Deep360 raw delta1 接近 0","DA3 metric scale 在 Deep360 上明显不匹配","加入 scale diagnostics","得到 direct baseline"
+3,P24-I100 perspective fusion / PanoGeo,"Matterport3D; Stanford2D3D; Deep360","Matterport3D 有改善趋势，Stanford2D3D mixed，Deep360 raw 失败","单目深度尺度不可靠，每个 view 尺度可能漂移","测试 median-align、fixed-scale calibration、overlap alignment","确认尺度是主要问题之一"
+4,检查 Stanford2D3D manifest,Stanford2D3D,"发现部分样本是 1080x1080","选到了局部 perspective image，不是 2:1 全景图","改用 pano/rgb/*equirectangular* 2048x4096 全景图","修正 Stanford2D3D 数据口径"
+5,分析 Deep360 raw metric 失败,Deep360,"PanoGeo raw: AbsRel 0.9299; RMSE 23.7697; delta1 0.0000","预测深度与 GT 尺度差异大，metric 指标崩掉","使用 fixed-scale calibration","Deep360 fixed-scale 后明显提升"
+6,继续测试纯 PanoGeo,"Matterport3D; Stanford2D3D","Matterport3D 较好，Stanford2D3D RMSE/delta1 不稳定","纯 fusion 会引入局部投影误差，破坏 direct 的全局稳定结构","加入 direct-guided blend","确定 blend 方向"
+7,P60-I300 direct-guided blend,"Matterport3D; Stanford2D3D","两个数据集三项指标全部提升","Direct 提供全局稳定结构，PanoGeo 提供局部几何修正","作为 indoor 最终结果","Matterport3D: 0.4456/0.8291/0.4503 -> 0.3680/0.7376/0.5259; Stanford2D3D: 0.2537/0.7103/0.6286 -> 0.2136/0.6794/0.6397"
+8,Deep360 fixed-scale P24-I100 PanoGeo,Deep360,"三项指标全部提升","尺度校准解决 raw metric 下的主要失败原因","作为 Deep360 当前有效结果","Deep360: 2.2448/18.5921/0.1528 -> 0.6195/12.2246/0.3002"
